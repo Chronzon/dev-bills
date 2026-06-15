@@ -253,7 +253,8 @@ Important files:
 - `app/api/bills/**`: bill, people, item, split, assignment, and summary APIs.
 - `prisma/schema.prisma`: database schema.
 - `prisma/migrations/**`: migration history.
-- `docker-compose.yml`: local production-style app and Postgres stack.
+- `docker-compose.yml`: default local development app and Postgres stack.
+- `docker-compose.prod.yml`: production-style app, migration, and Postgres stack.
 - `Dockerfile`: production image build and startup command.
 
 Useful scripts:
@@ -268,10 +269,17 @@ Useful scripts:
 
 ## Deployment And Database
 
-Local Docker flow:
+Local Docker development flow:
 
-- `docker compose up --build -d` starts Postgres, runs migrations, and starts the app.
-- Compose requires `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` from environment variables.
+- `docker compose up --build` starts Postgres, runs migrations, and starts the Next.js development server.
+- Default development Compose uses fixed local values so no `.env` file is required for local Docker.
+- Development Postgres is exposed on host port `5432`; the app is exposed on host port `3000`.
+- `docker compose down -v` resets local Docker app and database volumes.
+
+Production Docker flow:
+
+- `docker compose -f docker-compose.prod.yml up --build -d` starts the production-style stack.
+- Production Compose requires `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` from environment variables.
 - In Coolify, those values should come from shared/environment variables, not committed files.
 - The `migrate` service runs `npm run db:migrate:deploy` as a one-off step before the app starts.
 - The app container only runs `npm run start`.
