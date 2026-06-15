@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../features/db/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Bill {
+  id            String     @id
+  currency      String
+  taxRate       Float
+  serviceRate   Float
+  chargesIncluded Boolean
+  sourceImages  Json?
+  merchant      String?
+  receiptDate   String?
+  subtotal      Int?
+  taxAmount     Int?
+  serviceAmount Int?
+  total         Int?
+  taxBase       String     @default("subtotal_plus_service")
+  roundingDelta Int?
+  warnings      Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  people        Person[]
+  items         BillItem[]
+  portions      Portion[]
+}
+
+model Person {
+  id        String    @id
+  billId    String
+  name      String
+  accent    String
+  sortOrder Int
+  bill      Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
+  portions  Portion[]
+
+  @@index([billId, sortOrder])
+}
+
+model BillItem {
+  id          String    @id
+  billId      String
+  name        String
+  basePrice   Int
+  quantity    Int
+  components  Json?
+  confidence  Float?
+  needsReview Boolean?
+  rawLines    Json?
+  sortOrder   Int
+  bill        Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
+  portions    Portion[]
+
+  @@index([billId, sortOrder])
+}
+
+model Portion {
+  id               String   @id
+  billId           String
+  itemId           String
+  label            String
+  baseAmount       Int
+  assignedPersonId String?
+  source           String
+  quantity         Int?
+  unitAmount       Int?
+  splitMode        String   @default("full")
+  sortOrder        Int
+  bill             Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  item             BillItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  assignedPerson   Person?  @relation(fields: [assignedPersonId], references: [id], onDelete: SetNull)
+
+  @@index([billId, sortOrder])
+  @@index([itemId])
+  @@index([assignedPersonId])
+}

@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: dev-bills-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: devbills
+      POSTGRES_USER: devbills
+      POSTGRES_PASSWORD: devbills
+    ports:
+      - "5432:5432"
+    volumes:
+      - dev-bills-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devbills -d devbills"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+    container_name: dev-bills-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://devbills:devbills@postgres:5432/devbills
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
+volumes:
+  dev-bills-postgres:

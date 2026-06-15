@@ -1,0 +1,10 @@
+.next/
+node_modules/
+out/
+dist/
+build/
+*.tsbuildinfo
+.DS_Store
+.env*
+!.env.example
+features/db/generated/
