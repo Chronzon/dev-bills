@@ -68,4 +68,45 @@ assert.equal(
   true,
 );
 
+const damagedMilleOcr = parseReceiptLines([
+  line("ill,", 0),
+  line("BILLIARDS", 93),
+  line("MALL ALAM SUTRA", 90),
+  line("HA2605040047", 0),
+  line("FACE] 3 JAM WEEKDAY +", 38),
+  line("BREE 2 GELAS AIR PUTI", 46),
+  line("HEELS [HH                   1     160.000", 43),
+  line("b 151LLIARD REGULAR           180           0", 31),
+  line("i MUEAT  : 18:09", 24),
+  line("SEEFSAL: 21:10", 28),
+  line("last Goreng Kampung                 29.000", 75),
+  line("| [HDOMIE GORENG JUMBO         ]      16.000", 57),
+  line("wil pe ara                     19.000", 52),
+  line(".                              164.000", 62),
+  line("[sunt                             164.000", 48),
+  line("eve                               8.200", 50),
+  line("PE |                              17.220", 49),
+  line("mt", 20),
+  line("ROUNDING", 78),
+  line("TOTAL 189, 40", 74),
+  line("189.420", 80),
+  line("~20", 48),
+]);
+
+assert.equal(damagedMilleOcr.subtotal, 164_000);
+assert.equal(damagedMilleOcr.serviceAmount, 8_200);
+assert.equal(damagedMilleOcr.taxAmount, 17_220);
+assert.equal(damagedMilleOcr.total, 189_420);
+assert.notEqual(damagedMilleOcr.subtotal, 648_504);
+assert.equal(
+  damagedMilleOcr.items.some((item) => item.price === 260_504),
+  false,
+  "header invoice amount must not become an item",
+);
+assert.equal(
+  itemSubtotal(damagedMilleOcr) <= 169_000,
+  true,
+  "noisy OCR items should stay near detected subtotal",
+);
+
 console.log("Parser fixture checks passed.");

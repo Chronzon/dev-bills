@@ -12,6 +12,9 @@ const discountPattern = /\bdiscount|disc\b/i;
 const chargeBoundaryPattern =
   /\b(sub\s*total|subtotal|subttl|grand\s*total|total|ttl|take.?out total|tax|pajak|pb[1li]|service|svc|payment|paid|cash|card|debit|credit|qris|rounding)\b/i;
 const explicitTotalPattern = /\b(grand\s*)?total\b|\bttl\b|take.?out total/i;
+const damagedSubtotalPattern = /\b(?:s[uoa]n?t|sunt|sub|net)\b/i;
+const damagedServicePattern = /\b(?:service|svc|eve)\b/i;
+const damagedTaxPattern = /\b(?:tax|pajak|pb[1li]?|pe)\b/i;
 
 function normalizeSpaces(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -146,6 +149,58 @@ function getExplicitCharges(lines: Array<{ text: string; confidence: number }>) 
   return { subtotal, taxAmount, serviceAmount, total };
 }
 
+function getReceiptChargeHints(lines: Array<{ text: string; confidence: number }>) {
+  let subtotal: number | undefined;
+  let taxAmount: number | undefined;
+  let serviceAmount: number | undefined;
+  let total: number | undefined;
+  let totalLabelReached = false;
+
+  for (const [index, line] of lines.entries()) {
+    const lower = line.text.toLowerCase();
+    const candidates = moneyCandidates(line.text);
+    const lastMoney = candidates.at(-1)?.amount;
+    const inLowerReceipt = index >= Math.floor(lines.length * 0.45);
+
+    if (explicitTotalPattern.test(lower)) {
+      totalLabelReached = true;
+      if (lastMoney) total = lastMoney;
+      continue;
+    }
+
+    if (totalLabelReached && isLooseAmountLine(line.text) && lastMoney) {
+      total = lastMoney;
+      totalLabelReached = false;
+      continue;
+    }
+
+    if (!lastMoney || !inLowerReceipt) continue;
+
+    if (damagedSubtotalPattern.test(lower)) {
+      subtotal = lastMoney;
+      continue;
+    }
+
+    if (damagedServicePattern.test(lower)) {
+      serviceAmount = lastMoney;
+      continue;
+    }
+
+    if (damagedTaxPattern.test(lower)) {
+      taxAmount = lastMoney;
+    }
+  }
+
+  if (!subtotal && total && serviceAmount && taxAmount) {
+    const inferredSubtotal = total - serviceAmount - taxAmount;
+    if (inferredSubtotal > 0 && inferredSubtotal >= total * 0.5) {
+      subtotal = inferredSubtotal;
+    }
+  }
+
+  return { subtotal, taxAmount, serviceAmount, total };
+}
+
 function isLikelyComponent(line: string) {
   return (
     /^\d+\s+\S+/.test(line) &&
@@ -194,6 +249,15 @@ function isPlausibleItem(name: string, amount: number) {
   if (noisy > Math.max(1, letters * 0.35)) return false;
   if (/^\W*[a-z]{1,3}\W*$/i.test(name)) return false;
   return true;
+}
+
+function looksLikeHeaderAmount(name: string, amount: number, lineIndex: number, confidence: number) {
+  const compactName = name.replace(/[^a-z0-9]/gi, "");
+  if (lineIndex < 8 && confidence < 55 && amount >= 200_000) return true;
+  if (lineIndex < 8 && /\b(mall|alam|sutra|invoice|receipt|billiards?)\b/i.test(name)) {
+    return true;
+  }
+  return lineIndex < 8 && /^[a-z]{1,4}\d{6,}$/i.test(compactName);
 }
 
 function toBillItems(items: ParsedReceiptItem[]): BillItem[] {
@@ -278,10 +342,11 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
   const warnings: string[] = [];
   const items: ParsedReceiptItem[] = [];
   const explicitCharges = getExplicitCharges(cleanedLines);
-  let subtotal = explicitCharges.subtotal;
-  let taxAmount = explicitCharges.taxAmount;
-  let serviceAmount = explicitCharges.serviceAmount;
-  let total = explicitCharges.total;
+  const chargeHints = getReceiptChargeHints(cleanedLines);
+  let subtotal = explicitCharges.subtotal ?? chargeHints.subtotal;
+  let taxAmount = explicitCharges.taxAmount ?? chargeHints.taxAmount;
+  let serviceAmount = explicitCharges.serviceAmount ?? chargeHints.serviceAmount;
+  let total = explicitCharges.total ?? chargeHints.total;
   let lastChargeable: ParsedReceiptItem | null = null;
   let pendingNameParts: string[] = [];
   let chargeBoundaryReached = false;
@@ -357,7 +422,9 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
     }
 
     if (candidates.length === 0 || nonItemPattern.test(lower)) {
-      if (isLikelyNameLine(text)) {
+      if (items.length === 0 && lineIndex < 5) {
+        pendingNameParts = [];
+      } else if (isLikelyNameLine(text)) {
         pendingNameParts.push(stripQuantityPrefix(text));
       } else if (/^[\W_]+$/.test(text)) {
         continue;
@@ -400,12 +467,17 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
       continue;
     }
 
+    if (looksLikeHeaderAmount(name, amount, lineIndex, line.confidence)) {
+      continue;
+    }
+
     const lineTotal = price * quantity;
     const projectedSubtotal =
       items.reduce((sum, item) => sum + item.price * item.quantity, 0) + lineTotal;
     if (
       strongestDetectedSubtotal &&
-      projectedSubtotal > Math.max(strongestDetectedSubtotal * 1.25, strongestDetectedSubtotal + 20_000)
+      projectedSubtotal >
+        Math.max(strongestDetectedSubtotal * 1.03, strongestDetectedSubtotal + 5_000)
     ) {
       if (!warnedAboutRejectedOverflow) {
         warnings.push(
@@ -463,9 +535,9 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
     warnings.push("No chargeable item rows were detected. Manual review is required.");
   }
 
-  if (explicitCharges.subtotal && baseSubtotal > 0) {
-    const delta = Math.abs(baseSubtotal - explicitCharges.subtotal);
-    if (delta > Math.max(1000, explicitCharges.subtotal * 0.03)) {
+  if (subtotal && baseSubtotal > 0) {
+    const delta = Math.abs(baseSubtotal - subtotal);
+    if (delta > Math.max(1000, subtotal * 0.03)) {
       warnings.push("OCR item subtotal conflicts with the detected receipt subtotal.");
     }
   }

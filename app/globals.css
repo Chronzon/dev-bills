@@ -1401,21 +1401,32 @@ button {
     padding-right: 24px;
   }
 
-  .item-editor-row {
-    grid-template-columns: minmax(0, 1fr) 92px 64px 40px;
-    gap: 10px;
+  .item-editor-list {
+    gap: 14px;
+    overflow: visible;
   }
 
-  .item-editor-name,
-  .item-editor-total {
+  .item-editor-row {
+    grid-template-columns: minmax(0, 1fr) minmax(76px, 0.6fr) 44px;
+    row-gap: 12px;
+    column-gap: 10px;
+    min-height: 0;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  .item-editor-name {
     grid-column: 1 / -1;
   }
 
   .item-editor-total {
+    grid-row: 3;
     min-width: 0;
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: center;
+    grid-column: 1 / -1;
+    padding-top: 2px;
   }
 
   .item-editor-total b {
@@ -1424,6 +1435,8 @@ button {
   }
 
   .item-editor-row button {
+    grid-column: 3;
+    grid-row: 2;
     align-self: end;
   }
 }
