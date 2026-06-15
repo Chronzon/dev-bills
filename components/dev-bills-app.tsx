@@ -633,7 +633,7 @@ function ReviewScreen({
   onNext: () => void;
 }) {
   const imageCount = bill.sourceImages?.length ?? 0;
-  const [isEditingItems, setIsEditingItems] = useState(false);
+  const [isItemEditorOpen, setIsItemEditorOpen] = useState(false);
   const [draftItems, setDraftItems] = useState<DraftItem[]>(
     bill.items.map(toDraftItem),
   );
@@ -662,9 +662,8 @@ function ReviewScreen({
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? `item-${crypto.randomUUID().slice(0, 8)}`
         : `item-${Date.now()}`;
-    const currentDraftItems = isEditingItems ? draftItems : bill.items.map(toDraftItem);
     setDraftItems([
-      ...currentDraftItems,
+      ...draftItems,
       {
         id,
         name: "",
@@ -672,7 +671,10 @@ function ReviewScreen({
         quantity: "1",
       },
     ]);
-    setIsEditingItems(true);
+  };
+
+  const removeDraftItem = (itemId: string) => {
+    setDraftItems((items) => items.filter((entry) => entry.id !== itemId));
   };
 
   const saveDraftItems = () => {
@@ -682,7 +684,12 @@ function ReviewScreen({
 
     if (items.length === 0) return;
     onUpdateItems(items);
-    setIsEditingItems(false);
+    setIsItemEditorOpen(false);
+  };
+
+  const openItemEditor = () => {
+    setDraftItems(bill.items.map(toDraftItem));
+    setIsItemEditorOpen(true);
   };
 
   return (
@@ -730,86 +737,17 @@ function ReviewScreen({
           }}
         />
       </label>
-      {isEditingItems ? (
-        <div className="item-editor-list">
-          {draftItems.map((item) => (
-            <div className="item-editor-row" key={item.id}>
-              <label className="item-editor-field item-editor-name">
-                <span>Name</span>
-                <input
-                  value={item.name}
-                  placeholder="Item name"
-                  aria-label="Item name"
-                  onChange={(event) =>
-                    updateDraftItem(item.id, { name: event.currentTarget.value })
-                  }
-                />
-              </label>
-              <label className="item-editor-field">
-                <span>Unit price</span>
-                <input
-                  value={item.basePrice}
-                  type="number"
-                  min={1000}
-                  step={500}
-                  aria-label="Item price"
-                  onChange={(event) =>
-                    updateDraftItem(item.id, {
-                      basePrice: event.currentTarget.value,
-                    })
-                  }
-                />
-              </label>
-              <label className="item-editor-field">
-                <span>Qty</span>
-                <input
-                  value={item.quantity}
-                  type="number"
-                  min={1}
-                  aria-label="Item quantity"
-                  onChange={(event) =>
-                    updateDraftItem(item.id, {
-                      quantity: event.currentTarget.value,
-                    })
-                  }
-                />
-              </label>
-              <div className="item-editor-total">
-                <span>Line total</span>
-                <b>
-                  {formatRupiah(
-                    (Number.parseInt(item.basePrice, 10) || 0) *
-                      (Number.parseInt(item.quantity, 10) || 0),
-                  )}
-                </b>
-              </div>
-              <button
-                type="button"
-                aria-label={`Remove ${item.name || "item"}`}
-                onClick={() =>
-                  setDraftItems((items) =>
-                    items.filter((entry) => entry.id !== item.id),
-                  )
-                }
-              >
-                -
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="chip-wrap">
-          {bill.items.map((item) => (
-            <span className="item-chip" key={item.id}>
-              <b>{item.name}</b>
-              <small>
-                {formatRupiah(item.basePrice)} x {item.quantity} ={" "}
-                {formatRupiah(item.basePrice * item.quantity)}
-              </small>
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="chip-wrap">
+        {bill.items.map((item) => (
+          <span className="item-chip" key={item.id}>
+            <b>{item.name}</b>
+            <small>
+              {formatRupiah(item.basePrice)} x {item.quantity} ={" "}
+              {formatRupiah(item.basePrice * item.quantity)}
+            </small>
+          </span>
+        ))}
+      </div>
       <div className="charges-review-block glass-card">
         <span className="label amber">BACKEND THINKING</span>
         <div>
@@ -847,20 +785,10 @@ function ReviewScreen({
         <div className="secondary-actions">
           <button
             type="button"
-            onClick={() => {
-              if (isEditingItems) {
-                saveDraftItems();
-                return;
-              }
-              setDraftItems(bill.items.map(toDraftItem));
-              setIsEditingItems(true);
-            }}
+            onClick={openItemEditor}
             disabled={isSaving}
           >
-            {isEditingItems ? "Save items" : "Edit items"}
-          </button>
-          <button type="button" className="accent" onClick={addDraftItem} disabled={isSaving}>
-            + Add item
+            Edit items
           </button>
         </div>
         <button
@@ -872,7 +800,162 @@ function ReviewScreen({
           Looks right
         </button>
       </div>
+      <AnimatePresence>
+        {isItemEditorOpen && (
+          <ItemEditorSheet
+            draftItems={draftItems}
+            isSaving={isSaving}
+            onUpdateItem={updateDraftItem}
+            onAddItem={addDraftItem}
+            onRemoveItem={removeDraftItem}
+            onSave={saveDraftItems}
+            onClose={() => setIsItemEditorOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </Screen>
+  );
+}
+
+function ItemEditorSheet({
+  draftItems,
+  isSaving,
+  onUpdateItem,
+  onAddItem,
+  onRemoveItem,
+  onSave,
+  onClose,
+}: {
+  draftItems: DraftItem[];
+  isSaving: boolean;
+  onUpdateItem: (
+    itemId: string,
+    patch: Partial<Pick<DraftItem, "name" | "basePrice" | "quantity">>,
+  ) => void;
+  onAddItem: () => void;
+  onRemoveItem: (itemId: string) => void;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const validDraftItems = draftItems
+    .map(parseDraftItem)
+    .filter((item): item is BillItem => item !== null);
+  const draftSubtotal = validDraftItems.reduce(
+    (total, item) => total + item.basePrice * item.quantity,
+    0,
+  );
+  const canSave = validDraftItems.length > 0 && !isSaving;
+
+  return (
+    <motion.div
+      className="item-editor-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <button className="modal-scrim" type="button" onClick={onClose} />
+      <motion.div
+        className="item-editor-sheet glass-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="item-editor-title"
+        initial={{ opacity: 0, y: 30, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.98 }}
+        transition={{ duration: 0.25 }}
+      >
+        <div className="item-editor-sheet-head">
+          <div>
+            <span className="label amber">EDIT ITEMS</span>
+            <h2 id="item-editor-title">Review food and products</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close item editor">
+            ×
+          </button>
+        </div>
+        <div className="item-editor-sheet-meta">
+          <span>{draftItems.length} items</span>
+          <b>{formatRupiah(draftSubtotal)}</b>
+        </div>
+        <div className="item-editor-scroll">
+          <div className="item-editor-list">
+            {draftItems.map((item) => (
+              <div className="item-editor-row" key={item.id}>
+                <label className="item-editor-field item-editor-name">
+                  <span>Name</span>
+                  <input
+                    value={item.name}
+                    placeholder="Item name"
+                    aria-label="Item name"
+                    onChange={(event) =>
+                      onUpdateItem(item.id, { name: event.currentTarget.value })
+                    }
+                  />
+                </label>
+                <label className="item-editor-field">
+                  <span>Unit price</span>
+                  <input
+                    value={item.basePrice}
+                    type="number"
+                    min={1000}
+                    step={500}
+                    aria-label="Item price"
+                    onChange={(event) =>
+                      onUpdateItem(item.id, {
+                        basePrice: event.currentTarget.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="item-editor-field">
+                  <span>Qty</span>
+                  <input
+                    value={item.quantity}
+                    type="number"
+                    min={1}
+                    aria-label="Item quantity"
+                    onChange={(event) =>
+                      onUpdateItem(item.id, {
+                        quantity: event.currentTarget.value,
+                      })
+                    }
+                  />
+                </label>
+                <div className="item-editor-total">
+                  <span>Line total</span>
+                  <b>
+                    {formatRupiah(
+                      (Number.parseInt(item.basePrice, 10) || 0) *
+                        (Number.parseInt(item.quantity, 10) || 0),
+                    )}
+                  </b>
+                </div>
+                <button
+                  type="button"
+                  aria-label={`Remove ${item.name || "item"}`}
+                  onClick={() => onRemoveItem(item.id)}
+                >
+                  -
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="item-editor-sheet-actions">
+          <button type="button" className="ghost-editor-button" onClick={onAddItem}>
+            + Add item
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={onSave}
+            disabled={!canSave}
+          >
+            Save items
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

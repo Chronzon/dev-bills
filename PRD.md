@@ -81,12 +81,13 @@ The review screen lets users inspect and correct detected bill data.
 
 Current behavior:
 
-- Item rows show name, unit price, quantity, and line total.
-- On mobile, edit mode uses stacked, touch-friendly item editor rows so controls remain visible in narrow viewports.
+- Review shows compact item chips by default.
+- The `Edit items` action opens a full-screen item editor sheet for all viewports.
+- Editor rows show name, unit price, quantity, line total, and remove action in a scrollable dedicated surface.
 - Users can edit item names, unit prices, and quantities.
 - Draft input values are held as strings while typing so values like `1` can be deleted and replaced with `7`.
 - Entering edit mode refreshes draft item values from the current saved bill.
-- Users can add missing items or remove wrong items.
+- Users can add missing items or remove wrong items inside the editor sheet.
 - Review shows the backend calculation context: item subtotal, detected subtotal, service, tax, grand total, effective multiplier, and reconciliation warning.
 
 ### 4. People Setup
@@ -351,6 +352,7 @@ Important limitation:
 - Receipt scanning is implemented as a draft input, not an authority.
 - Item editing is required because OCR is imperfect.
 - Receipt parser regressions should use committed OCR line fixtures instead of committed test receipt images.
+- Item review uses a dedicated editor sheet instead of inline editing so long receipts remain usable on mobile.
 - Tax, service, and rounding are allocated proportionally by assigned subtotal.
 - Raw receipt totals are preserved and shown during review.
 - PostgreSQL persistence is the production path, with memory fallback only for quick local UI work.
