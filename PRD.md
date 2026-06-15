@@ -230,7 +230,7 @@ Current stack:
 - Tesseract.js and Sharp for local receipt OCR.
 - Prisma with PostgreSQL for persistent bill storage.
 - In-memory fallback storage when `DATABASE_URL` is not set.
-- Docker Compose for a production-style local stack.
+- Docker Compose for the production-style stack.
 
 Important files:
 
@@ -261,16 +261,18 @@ Useful scripts:
 
 Local Docker flow:
 
-- `docker compose up --build -d` starts Postgres and the app.
-- The app container runs `npm run db:migrate:deploy` before `npm run start`.
-- The app uses `DATABASE_URL=postgresql://devbills:devbills@postgres:5432/devbills` inside Compose.
-- The local host can use `DATABASE_URL=postgresql://devbills:devbills@localhost:5432/devbills`.
+- `docker compose up --build -d` starts Postgres, runs migrations, and starts the app.
+- Compose requires `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` from environment variables.
+- In Coolify, those values should come from shared/environment variables, not committed files.
+- The `migrate` service runs `npm run db:migrate:deploy` as a one-off step before the app starts.
+- The app container only runs `npm run start`.
+- Postgres is not published to the host by default; only the app port is exposed.
 
 Production guidance:
 
 - Production deploys should apply Prisma migrations before serving the new app version.
-- For a single Docker Compose app container, running migrations in the startup command is acceptable.
-- If the app is scaled to multiple containers, move migration execution to a one-off deploy job or separate `migrate` service so multiple app instances do not race to migrate.
+- The current Compose file uses a separate `migrate` service so the app startup command does not run migrations repeatedly.
+- If the app is scaled beyond one instance, keep migration execution as a one-off deploy step and avoid running migrations from every app replica.
 
 ## OCR And Receipt Parsing Direction
 
@@ -314,7 +316,7 @@ Important limitation:
 - Should there be a manual "tax/service included" toggle in review?
 - Should the playground support undo/redo?
 - Should person navigation add direct swipe gestures in addition to carousel controls?
-- Should production migrations remain in the app startup command or move to a dedicated migration service before multi-instance deployment?
+- Should production eventually use an external managed Postgres service instead of the bundled Compose Postgres service?
 
 ## Product Decisions So Far
 
@@ -332,6 +334,8 @@ Important limitation:
 - Tax, service, and rounding are allocated proportionally by assigned subtotal.
 - Raw receipt totals are preserved and shown during review.
 - PostgreSQL persistence is the production path, with memory fallback only for quick local UI work.
+- Production secrets must be supplied through environment variables, such as Coolify shared variables.
+- Migrations are managed by a dedicated Compose `migrate` service.
 - The `dev` branch is the active development branch; `main` is reserved for production promotion after explicit approval.
 
 ## Maintenance Note
