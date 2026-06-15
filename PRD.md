@@ -1,408 +1,305 @@
 # Dev Bills PRD
 
-Last updated: 2026-05-20
+Last updated: 2026-06-15
 
 ## Purpose
 
-This document captures the product direction for a browser-based split bill application. It should be treated as the living source of context for future design and implementation work. Keep this file updated whenever product decisions, UI direction, calculation rules, or scope change.
+This document is the living product and implementation source of context for Dev Bills. Keep it updated whenever product decisions, UI direction, calculation rules, deployment behavior, or feature scope changes. The base language is English; Indonesian should only be used when it is clearer for local receipt or domain context.
 
 ## Product Summary
 
-Dev Bills is a split bill app for the creator and their friends. The product should make splitting a receipt feel calm, elegant, and lightly interactive instead of flat and transactional. The core interaction is a browser-based "playground" where bill items are represented as text-only bubbles and users assign them to people through drag, swipe, and focused split interactions.
+Dev Bills is a browser-based split bill app for the creator and their friends. It is designed for restaurant receipts, shared activities, and mixed bills where different people consume different items. The core interaction is a visual assignment playground: bill portions appear as text-only bubbles, and users assign them to people through drag, swipe, and focused split interactions.
 
-The app should feel like a premium modern iOS app running in the browser: minimalist, glassy, responsive, and smooth. It should support both mobile and desktop users. The browser app should not show literal phone chrome such as iOS time, signal, or battery indicators; those belong only in design mockups.
+The app should feel like a premium modern iOS-style browser product: calm, glassy, responsive, and smooth. It should support both mobile and desktop without showing fake phone chrome such as iOS status bars.
 
 ## Target Users
 
-- Primary users: the creator and their friends.
-- Main use cases: eating out, playing billiards, shared activities, mixed bills where different people consume different items.
-- Example scenario: four people are in one bill, three people split the billiard table charge, and the fourth person only pays for food.
+- Primary users: the creator and friends.
+- Main use cases: eating out, playing billiards, shared activities, and bills with mixed personal/shared items.
+- Common scenario: several people share a table charge, food and drinks are individual or partially shared, and the receipt includes service charge and tax.
 
 ## Product Goals
 
-- Make splitting a bill feel intuitive, visual, and pleasant.
-- Let users assign each bill item to the correct person without feeling like they are filling out a boring calculator.
-- Support shared items where only some people pay for an item.
-- Keep the first version focused on UI/UX and frontend interactions.
-- Make the product easy to continue in future chats by keeping this PRD up to date.
+- Make bill splitting intuitive, visual, and pleasant.
+- Let users assign each item or quantity portion to the correct person without using a spreadsheet-like calculator.
+- Support real receipt scanning as a draft input, with review and manual correction before assignment.
+- Support full-item assignment, equal splits, uneven quantity splits, service charge, tax, and rounding reconciliation.
+- Persist bill state so users can refresh and continue the same split.
+- Keep deterministic bill calculation in application code. OCR and parsing only pre-fill editable draft data.
 
-## Non-Goals For The First Version
+## Non-Goals
 
-- Real receipt OCR or backend-powered item detection.
 - Authentication or user accounts.
 - Payment collection.
 - Marking a bill as paid.
 - Export/share image generation.
 - Literal food/product illustrations.
 - Literal basket UI for people.
+- Trusting OCR output without user review.
 
 ## Design Direction
 
-The visual direction should be inspired by dark, cinematic, abstract interfaces like the provided DOSS, Ethereal Shadows, and Dotted Surface references:
+The visual direction is dark, cinematic, abstract, and calm:
 
-- Dark monochrome base with black, graphite, white, and translucent glass.
-- Dynamic dotted particle surface as the primary background motif.
-- Dots should feel like an active responsive particle field across the whole viewport, not a static pattern and not only a floor at the bottom.
-- The particle field should have subtle individual dot drift, alpha/size pulsing, a central light source, and cursor/touch/phone movement response.
-- Subtle grids, shadows, and grain can support the background, but ribbons are no longer the preferred direction.
-- Sparse, technical, elegant layout rather than colorful playful UI.
-- Tiny accent labels are acceptable, but avoid random fake text.
-- Neon should be restrained and used as a focus glow, not as the whole palette.
-- The app should feel iOS-like: beautiful, minimal, precise, and smooth.
-- Use system light/dark preference where possible.
-- Avoid childish game aesthetics.
-- Avoid literal baskets.
-- Avoid food/product images; use text-only bubbles or chips for bill items.
-- Avoid cluttered multi-card layouts.
-
-## Interaction Principles
-
-- Interactions should feel "buttery": smooth, responsive, and calm.
-- Every interactive element should work on both touch and pointer devices.
-- Motion should support reduced-motion preferences.
-- Mobile should feel first-class, but desktop should still feel intentional.
-- Desktop should use its own responsive browser layout instead of showing a framed mobile app centered on the page.
-- The playful part is the interaction, not the visual style.
+- Dark monochrome base with black, graphite, white, translucent glass, and restrained amber/cyan accents.
+- Dynamic dotted particle surface as the primary full-viewport background motif.
+- Dots should feel active, not like a static pattern: drift, pulse, central light, pointer response, and device-orientation response where available.
+- Sparse technical layout rather than colorful playful UI.
+- Text-only item bubbles and chips, not literal product or food imagery.
+- Minimal iOS-like surfaces with smooth screen and modal transitions.
+- Desktop should have intentional responsive compositions, not a framed mobile mockup.
 
 ## Core User Flow
 
 ### 1. Home
 
-The home screen should be very simple.
-
-Required elements:
-
-- Abstract live background with subtle movement.
-- Dynamic dotted surface inspired by the latest reference.
-- Dots should be visible on mobile and desktop at the same background layer level.
-- Phone gyro support for parallax or background movement where available.
-- Desktop pointer movement fallback for parallax.
-- Rotating quote that refreshes every couple of minutes with a smooth transition.
-- The rotating quote should live directly below the main `Split softly.` headline using the existing quiet subtitle style.
-- Do not use a separate quote card or label such as `Refreshing quote` on the home screen.
-- Minimal primary action: Start Split.
-- Desktop home should have a distinct responsive composition, not a stretched mobile layout. Current direction: large editorial headline/quote on the left and a proportionally larger CTA on the right.
-- Desktop top rail should be refined: `DEV BILLS` has a small geometric mark, while `BROWSER` appears as a restrained glass pill.
-
-The background should feel like a live shader or procedural abstract art, not a decorative static image.
-
-### 2. Receipt Input
-
-Users should be able to upload one or more receipt images in the eventual product.
-
-For the first frontend-focused version:
-
-- Use mock receipt data or manual placeholder data.
-- The UI can still show an upload step for flow completeness.
-- Real OCR/detection will be handled later.
-
-### 3. Item Review
-
-After receipt input, the system shows detected/categorized bill items.
-
-For the first version:
-
-- Items are text-only bubbles/chips/cards.
-- Each item has a name and price.
-- Users should have manual fallback controls to edit detected items or add missing items if the scanner/OCR result is wrong.
-- Users should be able to understand that the data is editable later, even if editing is not fully implemented in the first prototype.
-
-Example items:
-
-- Billiard Table
-- Pizza
-- Iced Tea
-- Fries
-
-### 4. People Setup
-
-The app asks how many people are involved in the bill and lets the user name them.
-
-People should be represented elegantly:
-
-- Name-first design.
-- Minimal, beautiful person cards.
-- Optional initials or subtle color accents.
-- No cartoon avatars required.
-
-The design should allow adding a new person later from the playground if needed.
-
-### 5. Assignment Playground
-
-This is the main interaction area.
+The home screen starts the split and sets the mood.
 
 Required behavior:
 
-- Bill items float as text-only bubbles/chips.
-- A remaining bill total is visible and updates as items are assigned.
-- The bottom of the screen contains one large full-width person card.
-- Users swipe horizontally across the bottom card to move between people.
-- Desktop users can use drag, click, keyboard, or carousel controls as appropriate.
-- Users drag an item bubble onto the currently active person card to assign it.
-- The active person card should only catch a dragged item when the pointer is lower and close to the card, not from a loose high-distance "magnet" interaction.
-- Assigned items should remain draggable from the person card. Dragging one back outside the card returns it to the unassigned playground so users can fix mistakes.
-- Assigned items reduce the remaining unassigned bill cost.
-- Items should be movable/reassignable.
+- Full-viewport animated dotted surface.
+- `Split softly.` headline.
+- Rotating quote directly under the headline.
+- Start/new split action.
+- Continue existing split when an active bill id is stored locally.
+- Desktop layout should use a distinct composition with a polished top rail and larger call-to-action area.
 
-Important design decision:
+### 2. Receipt Input
 
-- Do not show four person cards at the same time as the default.
-- The primary pattern is one active card at the bottom, with swipe/slide navigation between people.
-- On desktop, the playground can use a three-column composition: remaining total, floating item field, and active person card.
+Users can upload one or more receipt images. The backend scans images with local OCR and returns a draft bill. The draft is not treated as final truth.
+
+Current behavior:
+
+- `POST /api/receipts/scan` accepts receipt images.
+- OCR uses Tesseract.js with Sharp preprocessing variants.
+- Parsed draft bill includes items, quantities, raw lines, confidence, service charge, tax, totals, and warnings when reconciliation is suspicious.
+- Manual review remains mandatory before entering the playground.
+
+### 3. Item Review
+
+The review screen lets users inspect and correct detected bill data.
+
+Current behavior:
+
+- Item rows show name, unit price, quantity, and line total.
+- Users can edit item names, unit prices, and quantities.
+- Draft input values are held as strings while typing so values like `1` can be deleted and replaced with `7`.
+- Users can add missing items or remove wrong items.
+- Review shows the backend calculation context: item subtotal, detected subtotal, service, tax, grand total, effective multiplier, and reconciliation warning.
+
+### 4. People Setup
+
+Users add and name the people involved in the bill.
+
+Current behavior:
+
+- People are name-first with subtle accent colors.
+- Users can add, rename, and remove people.
+- Removing a person clears assignments that referenced that person.
+
+### 5. Assignment Playground
+
+The playground is the main bill assignment surface.
+
+Current behavior:
+
+- Unassigned portions appear as draggable text-only bubbles.
+- Remaining unassigned subtotal updates as portions are assigned.
+- One active person card is shown at the bottom.
+- Users navigate between people using carousel controls.
+- Users drag bubbles onto the active person card to assign them.
+- The active card uses a lower-card drop zone so assignment feels intentional.
+- Assigned portions remain draggable and can be dragged out to become unassigned again.
+
+Known interaction gap:
+
+- Touch swipe navigation between people is part of the desired product behavior, but current implementation uses carousel controls rather than a dedicated swipe gesture for person navigation.
 
 ### 6. Split Item Interaction
 
-Shared items should be handled flexibly at the item level.
+Shared items are handled from an item-level split modal.
 
-Preferred interaction:
+Current behavior:
 
-- User holds, long-presses, or opens an action on an item such as "Pizza."
-- The rest of the screen blurs or dims.
-- The selected item remains in focus.
-- A minimal iOS-style overlay asks whether to split the item.
-- User chooses how many people should share it.
-- The item visually splits into equal text fragments/portions.
-- Each split portion should become a labeled token such as `Pizza 1/3`, `Pizza 2/3`, and `Pizza 3/3`.
-- Each portion token should show the assigned person and amount once assigned, such as `Andi · Rp13.333`.
-- Each portion can then be assigned to a person.
-
-Example:
-
-- Pizza costs Rp40.000.
-- User splits it by 3 people.
-- The app creates three equal portions of Rp13.333 or handles rounding clearly.
-- Each portion can be dragged to a different person card.
-
-The split interaction should feel elegant and satisfying, not childish. Prefer a scalable "portion ownership map" over literal food pieces, because it will work better when there are many people or many items.
+- Long-pressing an item opens a focused split modal.
+- Equal split mode creates labeled portions such as `Pizza 1/3`, `Pizza 2/3`, and `Pizza 3/3`.
+- Quantity split mode is the default for items with quantity greater than 1.
+- Quantity split mode assigns grouped item counts directly to people, for example `Sate Telur Gulung x4`, `x2`, and `x1`.
+- Partial quantity split leaves a grouped unassigned remainder bubble, for example `Sate Telur Gulung x3`.
+- Quantity portions store assigned quantity and unit amount instead of creating one bubble per item count.
 
 ### 7. Final Summary
 
-The final page shows one person at a time using swipeable cards.
+The summary screen shows one person at a time.
 
-Design direction:
+Current behavior:
 
-- Similar feeling to a Spotify-style card or modern iOS summary card.
-- One large card is active.
-- User slides between people.
-- Each card shows the person's name, assigned items, subtotal, tax/service, and final total.
-
-For the first version, viewing the result is enough.
+- Each person card shows assigned portions, subtotal, service share, tax share, rounding share when nonzero, added charges, and final total.
+- Final totals include proportional tax/service allocation.
+- Rounding is reconciled so the sum of person totals matches the detected receipt grand total when receipt totals are available.
 
 ## Bill Calculation Requirements
 
-The app must support bills where tax and service are added at the end, as well as bills where tax/service are already included.
+The app must support restaurant bills where service and tax are added after item subtotal, and bills where charges are already included.
 
-Example rule from user:
+Current calculation rules:
 
-- Tax: 10%
-- Service: 5%
-- Combined multiplier: 1.155
-- If a person's base subtotal is Rp40.000, final total is Rp40.000 x 1.155.
+- `BillItem.basePrice` is the unit price.
+- `BillItem.quantity` is the ordered quantity.
+- `Portion.baseAmount` is the assigned base subtotal for that portion.
+- `Portion.quantity` stores assigned item count for quantity splits.
+- `Portion.unitAmount` stores unit price for quantity splits.
+- `Portion.splitMode` is `full`, `equal`, or `quantity`.
+- Service share, tax share, and rounding share are allocated proportionally by each person's assigned base subtotal.
+- Rounding leftover is assigned deterministically by largest fractional remainder.
+- If receipt subtotal, service, tax, and grand total are detected, raw receipt amounts win over inferred rates.
+- Indonesian restaurant receipts default to tax on `subtotal + service` when that reconciles best; fallback is tax on subtotal.
+- Contradictory OCR totals should surface a review warning and remain editable.
 
-Required calculation concepts:
+Required parser behavior:
 
-- Each item has a base price.
-- Each item can be assigned to one person or split between multiple people.
-- Each person's base subtotal is calculated from assigned full items and shared portions.
-- Bill-level charges can be applied after assignment.
-- The app should support a tax/service multiplier model internally when useful. For example, 10% tax plus 5% service can be treated as a combined multiplier of `1.155` for easier calculation.
-- The UI should show the exact added charge amount per person, not only the multiplier. Example: show `Tax + service Rp4.857` instead of `x1.155`.
-- The app should eventually support bills where tax/service are included in item prices.
+- `3x AMERICANO 96.000` should parse as quantity `3`, unit price `32.000`, and line total `96.000`.
+- `335.000 + 16.750 + 35.175 = 386.925` should infer service `5%`, tax `10%` on subtotal plus service, and total `386.925`.
 
-Rounding should be handled explicitly, especially for split portions.
+## Data Model
 
-## Suggested Data Model
+### Bill
 
-### Receipt
-
-- id
-- sourceImages
-- items
-- charges
-- currency
-- createdAt
+- `id`
+- `currency`
+- `people`
+- `items`
+- `portions`
+- `charges`
+- `sourceImages`
+- `receiptMeta`
 
 ### Bill Item
 
-- id
-- name
-- basePrice
-- quantity
-- assignmentStatus
-- portions
-
-### Person
-
-- id
-- name
-- accentColor
-- assignedPortions
-
-### Portion
-
-- id
-- itemId
-- label
-- baseAmount
-- assignedPersonId
-
-### Charges
-
-- taxRate
-- serviceRate
-- multiplier
-- chargesIncluded
-- discountAmount
-- roundingMode
-
-## MVP Scope
-
-The first interactive frontend prototype should include:
-
-- Browser app shell.
-- Home screen with procedural dotted particle background.
-- System light/dark mode support.
-- Gyro parallax on supported phones.
-- Pointer parallax on desktop.
-- Rotating quote directly under the main home headline.
-- Start Split button.
-- Mock upload/receipt flow.
-- Mock bill items as text bubbles.
-- Manual `Edit items` and `Add item` actions on the item review screen.
-- People setup with names.
-- One active bottom person card with swipe navigation.
-- Drag item bubbles to the active person card.
-- Remaining bill total updates.
-- Long-press or action-based split item modal.
-- Split item into equal portions.
-- Final swipeable summary cards.
-
-Current implementation status:
-
-- Implemented as a Next.js App Router + TypeScript frontend app.
-- The current UI is still running from mock bill data; backend OCR exists but is not wired into the UI yet.
-- The app is responsive and no longer uses a fake phone frame or literal iOS status bar.
-- The dynamic dotted particle background is implemented as a full-viewport canvas layer.
-- The particle field currently has per-dot drift, size/alpha pulsing, pointer response, and device-orientation response.
-- The UI includes the home, review, people setup, playground, split modal, and summary screens.
-- Drag assignment uses dnd-kit.
-- Drag assignment uses a lower-card drop zone instead of a broad nearest-card magnet.
-- Assigned items on the active person card can be dragged back out of the card to become unassigned again.
-- The active person card empty state is intentionally quiet: a subtle slot marker with a short `No items yet` status instead of instructional helper copy.
-- Post-home screens include a back control and support a left-edge touch swipe back gesture for returning to the previous step.
-- Screen/modal animation uses Motion for React.
-- Bill calculation is deterministic TypeScript logic.
-- A backend-first OCR/API pass is implemented with Next.js route handlers.
-- `POST /api/receipts/scan` accepts receipt image uploads, runs local OCR with Tesseract.js, preprocesses images with Sharp, and returns raw OCR lines plus parsed bill suggestions.
-- Backend bill APIs exist for creating bills, fetching bills, updating people, splitting items, assigning portions, and reading summaries.
-- Backend bill storage is currently in memory and resets when the dev server restarts.
-- OCR/parser testing uses sample receipt images from `data-test-bill`.
-- Current OCR quality is best on the high-resolution phone photos. The older low-resolution samples still require manual review and are expected to produce imperfect item names.
-- Current local dev URL: `http://localhost:3000` when `npm run dev` is running.
-
-## Technical Direction
-
-The app should run in the browser and remain simple enough for Node-based deployment, potentially on Dewacloud.
-
-Preferred first implementation direction:
-
-- Frontend-first prototype.
-- Use mock data before backend/OCR.
-- Keep architecture simple.
-- Use browser APIs for interaction where possible.
-- Use `prefers-color-scheme` for system theme.
-- Use `DeviceOrientationEvent` for gyro where supported.
-- Use pointer movement fallback for desktop parallax.
-- Store prototype state locally in memory or local storage.
-
-Chosen first-build stack:
-
-- Next.js App Router with TypeScript.
-- Custom CSS for the iOS/glass/dotted-surface visual system.
-- Motion for React for screen and modal animation.
-- dnd-kit for touch and mouse drag assignment.
-- Frontend prototype still uses mock receipt data and deterministic bill logic.
-- Backend OCR uses Tesseract.js with local English trained data and Sharp image preprocessing.
-
-Important implementation files:
-
-- `app/page.tsx`: app entry.
-- `app/globals.css`: global responsive layout, glass UI, desktop/mobile composition, and visual styling.
-- `components/dev-bills-app.tsx`: main interactive prototype flow.
-- `components/dotted-surface.tsx`: full-viewport animated particle background.
-- `features/bill/engine.ts`: bill calculation, split portions, assignment, remaining total, per-person totals.
-- `features/bill/types.ts`: bill data types.
-- `features/bill/store.ts`: in-memory backend bill store and bill mutations.
-- `features/receipt/ocr.ts`: local OCR worker, preprocessing variants, and receipt scan orchestration.
-- `features/receipt/parser.ts`: deterministic parser for OCR lines, charge rows, totals, and chargeable item suggestions.
-- `app/api/receipts/scan/route.ts`: receipt image upload and scan API.
-- `data/mock-bill.ts`: mock receipt/person data.
-- `data-test-bill`: local receipt images used for scan testing.
-
-Useful scripts:
-
-- `npm run dev`: start local development server.
-- `npm run typecheck`: TypeScript validation.
-- `npm run lint`: ESLint validation.
-- `npm run build`: production build validation.
-- `npm run test:scan`: scan every image in `data-test-bill` against the running local API.
-
-## Future Backend And Receipt Parsing Direction
-
-The product does not need a large backend with admin/customer roles. The backend should remain small and focused on the "brain" of the operation:
-
-- Receive receipt image uploads.
-- Run OCR or receipt parsing.
-- Return structured item suggestions as JSON.
-- Validate and normalize prices, totals, tax, and service values.
-- Let the frontend review screen remain the source of truth after user confirmation.
-
-Recommended principle:
-
-- Calculation logic should be deterministic application code, not an LLM.
-- AI/OCR should only help pre-fill receipt data.
-- The user must always be able to edit or add items after scanning.
-
-Possible receipt parsing tiers:
-
-- Manual/mock input for the first frontend prototype.
-- Local OCR with Tesseract.js for low-cost printed text extraction. This is now implemented as the first backend scanner.
-- Optional cloud receipt parser later for better structured JSON.
-- Optional vision LLM fallback through a provider such as OpenRouter only for difficult receipts, not as the default calculation engine.
-
-Fallback vision LLM use case:
-
-- Use when local OCR returns low confidence, messy text, or a complex receipt hierarchy.
-- Useful for receipts where bundles/packages contain child components that should not become separate chargeable split items.
-- Example: a McDonald's package such as `PaNas 2M` should be treated as the main chargeable item, while `M Frutea Lemon` and similar indented lines can be stored as child components of that package.
-- The parser should distinguish chargeable top-level items from included package components, modifiers, notes, discounts, tax rows, and payment rows.
-- Even when the LLM is used, the review screen remains mandatory.
-
-Receipt item structure should eventually support:
-
+- `id`
 - `name`
-- `price`
+- `basePrice`
 - `quantity`
-- `isChargeable`
-- `parentItemId`
 - `components`
 - `confidence`
 - `needsReview`
 - `rawLines`
 
+### Portion
+
+- `id`
+- `itemId`
+- `label`
+- `baseAmount`
+- `assignedPersonId`
+- `source`
+- `quantity`
+- `unitAmount`
+- `splitMode`
+
+### Charges
+
+- `taxRate`
+- `serviceRate`
+- `included`
+- `subtotal`
+- `serviceAmount`
+- `taxAmount`
+- `total`
+- `taxBase`
+- `roundingDelta`
+
+### Receipt Meta
+
+- `merchant`
+- `receiptDate`
+- `subtotal`
+- `taxAmount`
+- `serviceAmount`
+- `total`
+- `warnings`
+
+## Technical Direction
+
+Current stack:
+
+- Next.js App Router with TypeScript.
+- Custom CSS for the glass UI and responsive layout.
+- Motion for React for screen and modal animation.
+- dnd-kit for touch and mouse drag assignment.
+- Tesseract.js and Sharp for local receipt OCR.
+- Prisma with PostgreSQL for persistent bill storage.
+- In-memory fallback storage when `DATABASE_URL` is not set.
+- Docker Compose for a production-style local stack.
+
+Important files:
+
+- `components/dev-bills-app.tsx`: main browser flow.
+- `components/dotted-surface.tsx`: animated dotted background.
+- `features/bill/engine.ts`: split creation, assignment, charge allocation, and summary totals.
+- `features/bill/store.ts`: memory/Postgres bill persistence and mutations.
+- `features/bill/types.ts`: shared bill types.
+- `features/receipt/ocr.ts`: OCR worker and image preprocessing.
+- `features/receipt/parser.ts`: deterministic receipt parser and charge inference.
+- `app/api/receipts/scan/route.ts`: receipt upload/scan API.
+- `app/api/bills/**`: bill, people, item, split, assignment, and summary APIs.
+- `prisma/schema.prisma`: database schema.
+- `prisma/migrations/**`: migration history.
+- `docker-compose.yml`: local production-style app and Postgres stack.
+- `Dockerfile`: production image build and startup command.
+
+Useful scripts:
+
+- `npm run dev`: start local development server.
+- `npm run typecheck`: Prisma generate plus TypeScript validation.
+- `npm run lint`: ESLint validation.
+- `npm run build`: production build validation.
+- `npm run db:migrate:deploy`: apply migrations to the configured database.
+- `npm run test:scan`: scan every image in `data-test-bill` against the running local API.
+
+## Deployment And Database
+
+Local Docker flow:
+
+- `docker compose up --build -d` starts Postgres and the app.
+- The app container runs `npm run db:migrate:deploy` before `npm run start`.
+- The app uses `DATABASE_URL=postgresql://devbills:devbills@postgres:5432/devbills` inside Compose.
+- The local host can use `DATABASE_URL=postgresql://devbills:devbills@localhost:5432/devbills`.
+
+Production guidance:
+
+- Production deploys should apply Prisma migrations before serving the new app version.
+- For a single Docker Compose app container, running migrations in the startup command is acceptable.
+- If the app is scaled to multiple containers, move migration execution to a one-off deploy job or separate `migrate` service so multiple app instances do not race to migrate.
+
+## OCR And Receipt Parsing Direction
+
+The backend should remain small and focused on receipt intelligence plus persistence:
+
+- Receive receipt image uploads.
+- Run OCR or receipt parsing.
+- Return structured item suggestions as JSON.
+- Validate and normalize prices, quantities, subtotal, tax, service, and total values.
+- Let the review screen remain the user-confirmed source of truth.
+
+Receipt parsing tiers:
+
+- Local OCR with Tesseract.js is the current default scanner.
+- Optional cloud receipt parser may be added later for better structured JSON.
+- Optional vision LLM fallback may be used for difficult receipts, but never as the default calculation engine.
+
+LLM or advanced parser output must be schema-validated and must not directly control final bill calculation without user review.
+
 Important limitation:
 
-- No OCR or vision system will perfectly handle every bill. Clean printed receipts should work best. Crumpled, blurry, unusual, or handwritten bills may require manual correction.
+- No OCR system will perfectly handle every bill. Clean printed receipts should work best. Crumpled, blurry, unusual, or handwritten bills may require manual correction.
 - The current parser is deterministic and intentionally conservative; scan results are suggestions for the review screen, not final bill truth.
-- The next backend step should improve parser reconciliation and then wire scan results into the review UI.
-- LLM output must be schema-validated and should never directly control final bill calculation without user confirmation.
 
 ## Accessibility And Responsiveness
 
 - Touch and mouse interactions must both work.
 - The app should be responsive as a real browser product, not a fixed mobile mockup inside a desktop frame.
-- Desktop layouts may use wider multi-column compositions while preserving the same product flow.
-- Actual browser UI should never include mock-only phone chrome such as time, 5G, battery, or iPhone status indicators.
+- Desktop layouts may use wider compositions while preserving the same product flow.
 - Drag actions should have a fallback for users who cannot drag.
 - Text must remain readable on small screens.
 - Important actions should not rely on motion alone.
@@ -412,38 +309,31 @@ Important limitation:
 ## Open Questions
 
 - What is the final app name?
-- Should item quantities be supported immediately?
-- How should rounding differences be assigned when splitting unevenly?
-- Should discounts be split proportionally or assigned manually?
+- Should discounts be split proportionally, assigned manually, or both?
 - Should final cards support sharing/export later?
-- Should there be a manual "bill included tax/service" toggle?
-- Should people have accent colors, initials, or only names?
+- Should there be a manual "tax/service included" toggle in review?
 - Should the playground support undo/redo?
-- Should `Edit items` and `+ Add item` become fully functional before OCR work starts?
-- Should the next iteration prioritize interaction polish, item editing, or scanner/OCR research?
+- Should person navigation add direct swipe gestures in addition to carousel controls?
+- Should production migrations remain in the app startup command or move to a dedicated migration service before multi-instance deployment?
 
 ## Product Decisions So Far
 
 - The app is for the creator and friends first.
-- The first priority is UI/UX and frontend interaction, not backend/OCR.
-- The app should run in the browser.
-- The implemented browser UI should fill the available viewport and adapt between mobile and desktop rather than rendering inside a fake device frame.
-- The design should feel like a modern iOS app.
-- The visual mood should be minimalist, elegant, glassy, dark/light capable, and calm.
-- The home screen should be simpler than earlier mockups.
-- The home background should use a dynamic dotted surface and react to gyro, cursor, or touch movement.
-- The dotted surface should be full-screen, visible on mobile, and feel like active particles with subtle individual movement.
-- The home quote should sit below `Split softly.` and should not appear in a separate frosted card.
-- The desktop home layout should use its own proportions, with a polished top rail and desktop-sized CTA rather than a mobile button stretched across the viewport.
-- Food and product items should not be image-based.
-- Items should be text-only bubbles or chips.
-- People should not appear as four simultaneous cards by default.
-- The bottom interaction should use one full-width active person card that can be swiped between people.
-- Assignment should feel intentional: the user must drag lower and closer to the active card before it accepts an item.
+- The app runs in the browser and adapts between mobile and desktop.
+- The visual mood is minimalist, elegant, glassy, dark, and calm.
+- The home background uses a dynamic dotted surface and reacts to gyro, cursor, or touch movement.
+- Food and product items remain text-only bubbles or chips.
+- People are navigated through one active person card rather than four simultaneous default cards.
+- Assignment requires dragging lower and closer to the active card before it accepts an item.
 - Assigned items can be dragged out of the active card to return them to the playground.
-- Shared items should be splittable through an item-level focused interaction.
-- Backend/OCR work is now in scope before UI integration, but the UI should only consume scanned draft data after the backend output is reviewed and stable.
+- Shared items support both equal splits and quantity-based uneven splits.
+- Receipt scanning is implemented as a draft input, not an authority.
+- Item editing is required because OCR is imperfect.
+- Tax, service, and rounding are allocated proportionally by assigned subtotal.
+- Raw receipt totals are preserved and shown during review.
+- PostgreSQL persistence is the production path, with memory fallback only for quick local UI work.
+- The `dev` branch is the active development branch; `main` is reserved for production promotion after explicit approval.
 
 ## Maintenance Note
 
-When future work changes the product direction, update this PRD in the same turn. This file exists so a new chat can quickly understand what has already been discussed and continue without losing context.
+When future work changes product direction or implementation reality, update this PRD in the same turn. Remove stale planned features when they are dropped, and move answered questions into product decisions.
