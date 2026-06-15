@@ -8,3 +8,4 @@ build/
 .env*
 !.env.example
 features/db/generated/
+data-test-bill/

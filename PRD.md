@@ -82,8 +82,10 @@ The review screen lets users inspect and correct detected bill data.
 Current behavior:
 
 - Item rows show name, unit price, quantity, and line total.
+- On mobile, edit mode uses stacked, touch-friendly item editor rows so controls remain visible in narrow viewports.
 - Users can edit item names, unit prices, and quantities.
 - Draft input values are held as strings while typing so values like `1` can be deleted and replaced with `7`.
+- Entering edit mode refreshes draft item values from the current saved bill.
 - Users can add missing items or remove wrong items.
 - Review shows the backend calculation context: item subtotal, detected subtotal, service, tax, grand total, effective multiplier, and reconciliation warning.
 
@@ -121,7 +123,9 @@ Shared items are handled from an item-level split modal.
 
 Current behavior:
 
-- Long-pressing an item opens a focused split modal.
+- Double-tapping or double-clicking an unassigned item bubble opens a focused split modal.
+- Long-pressing an item remains available as a touch fallback.
+- Drag movement cancels split gestures so normal assignment drag stays distinct from opening the modal.
 - Equal split mode creates labeled portions such as `Pizza 1/3`, `Pizza 2/3`, and `Pizza 3/3`.
 - Quantity split mode is the default for items with quantity greater than 1.
 - Quantity split mode assigns grouped item counts directly to people, for example `Sate Telur Gulung x4`, `x2`, and `x1`.
@@ -160,6 +164,10 @@ Required parser behavior:
 
 - `3x AMERICANO 96.000` should parse as quantity `3`, unit price `32.000`, and line total `96.000`.
 - `335.000 + 16.750 + 35.175 = 386.925` should infer service `5%`, tax `10%` on subtotal plus service, and total `386.925`.
+- Explicit receipt labels such as `SUBTTL`, `SVC`, `PB1`, `TTL`, and `TOTAL` should win over loose inferred amounts.
+- Subtotal, service, tax, total, payment, and rounding lines form a parsing boundary; noisy lines after that boundary should not become chargeable items unless they are clearly valid item rows.
+- OCR item rows that would make the parsed item subtotal exceed the strongest detected subtotal or total by a large margin should be rejected and surfaced as review warnings.
+- If parsed item subtotal conflicts with the detected receipt subtotal, the app should warn and keep review editable rather than silently trusting OCR.
 
 ## Data Model
 
@@ -256,6 +264,7 @@ Useful scripts:
 - `npm run build`: production build validation.
 - `npm run db:migrate:deploy`: apply migrations to the configured database.
 - `npm run test:scan`: scan every image in `data-test-bill` against the running local API.
+- `npm run test:parser`: run OCR-line parser regression fixtures without committed receipt images.
 
 ## Deployment And Database
 
@@ -296,6 +305,7 @@ Important limitation:
 
 - No OCR system will perfectly handle every bill. Clean printed receipts should work best. Crumpled, blurry, unusual, or handwritten bills may require manual correction.
 - The current parser is deterministic and intentionally conservative; scan results are suggestions for the review screen, not final bill truth.
+- Receipt test images are local manual-testing assets only. Keep `data-test-bill/` ignored and use OCR-line fixtures for committed parser regressions.
 
 ## Accessibility And Responsiveness
 
@@ -329,8 +339,10 @@ Important limitation:
 - Assignment requires dragging lower and closer to the active card before it accepts an item.
 - Assigned items can be dragged out of the active card to return them to the playground.
 - Shared items support both equal splits and quantity-based uneven splits.
+- Double-tap is the recommended mobile split gesture; long-press remains a fallback.
 - Receipt scanning is implemented as a draft input, not an authority.
 - Item editing is required because OCR is imperfect.
+- Receipt parser regressions should use committed OCR line fixtures instead of committed test receipt images.
 - Tax, service, and rounding are allocated proportionally by assigned subtotal.
 - Raw receipt totals are preserved and shown during review.
 - PostgreSQL persistence is the production path, with memory fallback only for quick local UI work.

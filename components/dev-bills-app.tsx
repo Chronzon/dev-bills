@@ -662,9 +662,9 @@ function ReviewScreen({
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? `item-${crypto.randomUUID().slice(0, 8)}`
         : `item-${Date.now()}`;
-    setIsEditingItems(true);
-    setDraftItems((items) => [
-      ...items,
+    const currentDraftItems = isEditingItems ? draftItems : bill.items.map(toDraftItem);
+    setDraftItems([
+      ...currentDraftItems,
       {
         id,
         name: "",
@@ -672,6 +672,7 @@ function ReviewScreen({
         quantity: "1",
       },
     ]);
+    setIsEditingItems(true);
   };
 
   const saveDraftItems = () => {
@@ -733,43 +734,55 @@ function ReviewScreen({
         <div className="item-editor-list">
           {draftItems.map((item) => (
             <div className="item-editor-row" key={item.id}>
-              <input
-                value={item.name}
-                placeholder="Item name"
-                aria-label="Item name"
-                onChange={(event) =>
-                  updateDraftItem(item.id, { name: event.currentTarget.value })
-                }
-              />
-              <input
-                value={item.basePrice}
-                type="number"
-                min={1000}
-                step={500}
-                aria-label="Item price"
-                onChange={(event) =>
-                  updateDraftItem(item.id, {
-                    basePrice: event.currentTarget.value,
-                  })
-                }
-              />
-              <input
-                value={item.quantity}
-                type="number"
-                min={1}
-                aria-label="Item quantity"
-                onChange={(event) =>
-                  updateDraftItem(item.id, {
-                    quantity: event.currentTarget.value,
-                  })
-                }
-              />
-              <span className="item-editor-total">
-                {formatRupiah(
-                  (Number.parseInt(item.basePrice, 10) || 0) *
-                    (Number.parseInt(item.quantity, 10) || 0),
-                )}
-              </span>
+              <label className="item-editor-field item-editor-name">
+                <span>Name</span>
+                <input
+                  value={item.name}
+                  placeholder="Item name"
+                  aria-label="Item name"
+                  onChange={(event) =>
+                    updateDraftItem(item.id, { name: event.currentTarget.value })
+                  }
+                />
+              </label>
+              <label className="item-editor-field">
+                <span>Unit price</span>
+                <input
+                  value={item.basePrice}
+                  type="number"
+                  min={1000}
+                  step={500}
+                  aria-label="Item price"
+                  onChange={(event) =>
+                    updateDraftItem(item.id, {
+                      basePrice: event.currentTarget.value,
+                    })
+                  }
+                />
+              </label>
+              <label className="item-editor-field">
+                <span>Qty</span>
+                <input
+                  value={item.quantity}
+                  type="number"
+                  min={1}
+                  aria-label="Item quantity"
+                  onChange={(event) =>
+                    updateDraftItem(item.id, {
+                      quantity: event.currentTarget.value,
+                    })
+                  }
+                />
+              </label>
+              <div className="item-editor-total">
+                <span>Line total</span>
+                <b>
+                  {formatRupiah(
+                    (Number.parseInt(item.basePrice, 10) || 0) *
+                      (Number.parseInt(item.quantity, 10) || 0),
+                  )}
+                </b>
+              </div>
               <button
                 type="button"
                 aria-label={`Remove ${item.name || "item"}`}
@@ -1013,7 +1026,7 @@ function PlaygroundScreen({
                 portion={portion}
                 index={index}
                 accent={index % 3 === 1 ? "amber" : index % 3 === 2 ? "cyan" : "plain"}
-                onLongPress={() => item && onSplitItem(item)}
+                onOpenSplit={() => item && onSplitItem(item)}
               />
             );
           })}
@@ -1034,15 +1047,17 @@ function DraggableBubble({
   portion,
   index,
   accent,
-  onLongPress,
+  onOpenSplit,
 }: {
   portion: Portion;
   index: number;
   accent: "plain" | "amber" | "cyan";
-  onLongPress: () => void;
+  onOpenSplit: () => void;
 }) {
   const holdTimer = useRef<number | null>(null);
   const startPoint = useRef<{ x: number; y: number } | null>(null);
+  const lastTap = useRef<{ time: number; x: number; y: number } | null>(null);
+  const longPressTriggered = useRef(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: portion.id,
   });
@@ -1057,12 +1072,21 @@ function DraggableBubble({
     holdTimer.current = null;
   };
 
+  const getMoveDistance = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!startPoint.current) return Number.POSITIVE_INFINITY;
+    const dx = event.clientX - startPoint.current.x;
+    const dy = event.clientY - startPoint.current.y;
+    return Math.hypot(dx, dy);
+  };
+
   const onPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     listeners?.onPointerDown?.(event);
     startPoint.current = { x: event.clientX, y: event.clientY };
+    longPressTriggered.current = false;
     cancelHold();
     holdTimer.current = window.setTimeout(() => {
-      onLongPress();
+      longPressTriggered.current = true;
+      onOpenSplit();
       holdTimer.current = null;
     }, 520);
   };
@@ -1077,7 +1101,28 @@ function DraggableBubble({
 
   const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
     listeners?.onPointerUp?.(event);
+    const moveDistance = getMoveDistance(event);
     cancelHold();
+    startPoint.current = null;
+
+    if (isDragging || longPressTriggered.current || moveDistance > 8) {
+      lastTap.current = null;
+      return;
+    }
+
+    const now = window.performance.now();
+    const previousTap = lastTap.current;
+    if (
+      previousTap &&
+      now - previousTap.time <= 360 &&
+      Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y) <= 18
+    ) {
+      lastTap.current = null;
+      onOpenSplit();
+      return;
+    }
+
+    lastTap.current = { time: now, x: event.clientX, y: event.clientY };
   };
 
   return (
@@ -1086,11 +1131,16 @@ function DraggableBubble({
       className={`drag-bubble ${accent} ${isDragging ? "dragging" : ""}`}
       style={style}
       type="button"
+      aria-label={`${portion.label}, ${formatRupiah(portion.baseAmount)}. Double tap to split.`}
+      title="Double tap to split"
       {...attributes}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={cancelHold}
+      onPointerCancel={() => {
+        cancelHold();
+        startPoint.current = null;
+      }}
     >
       {portion.label} · {formatRupiah(portion.baseAmount)}
     </button>

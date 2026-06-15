@@ -5,10 +5,13 @@ const nonItemPattern =
   /\b(date|time|table|cashier|thank|visit|duplicate|invoice|order|ord|bill|receipt|alamat|name|no hp|phone|telp|tlp|delivery|cashless|kartuku|change|payment|paid|items count|total item|subtotal|sub total|take.?out total|net sales|total|tax|pajak|service|svc|pb1|pbl|rounding|discount|instagram|email|print no|staff open|npp|crew|ref|pax|sales type|print cnt|contact|payment)\b/i;
 
 const totalPattern = /\b(grand\s*)?total\b|take.?out total/i;
-const subtotalPattern = /\bsub\s*total|subtotal\b|net sales/i;
+const subtotalPattern = /\bsub\s*total|subtotal\b|subttl\b|net sales/i;
 const taxPattern = /\btax\b|pajak|pb[1li]\b/i;
 const servicePattern = /\bservice\b|\bsvc\b/i;
 const discountPattern = /\bdiscount|disc\b/i;
+const chargeBoundaryPattern =
+  /\b(sub\s*total|subtotal|subttl|grand\s*total|total|ttl|take.?out total|tax|pajak|pb[1li]|service|svc|payment|paid|cash|card|debit|credit|qris|rounding)\b/i;
+const explicitTotalPattern = /\b(grand\s*)?total\b|\bttl\b|take.?out total/i;
 
 function normalizeSpaces(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -109,6 +112,40 @@ function getLastMoney(line: string) {
   return candidates.at(-1)?.amount;
 }
 
+function getExplicitCharges(lines: Array<{ text: string; confidence: number }>) {
+  let subtotal: number | undefined;
+  let taxAmount: number | undefined;
+  let serviceAmount: number | undefined;
+  let total: number | undefined;
+
+  for (const line of lines) {
+    const lower = line.text.toLowerCase();
+    const lastMoney = getLastMoney(line.text);
+    if (!lastMoney) continue;
+
+    if (subtotalPattern.test(lower)) {
+      subtotal = lastMoney;
+      continue;
+    }
+
+    if (taxPattern.test(lower)) {
+      taxAmount = lastMoney;
+      continue;
+    }
+
+    if (servicePattern.test(lower)) {
+      serviceAmount = lastMoney;
+      continue;
+    }
+
+    if (explicitTotalPattern.test(lower)) {
+      total = lastMoney;
+    }
+  }
+
+  return { subtotal, taxAmount, serviceAmount, total };
+}
+
 function isLikelyComponent(line: string) {
   return (
     /^\d+\s+\S+/.test(line) &&
@@ -140,6 +177,13 @@ function isLooseAmountLine(line: string) {
     .trim();
 
   return remainder.length === 0;
+}
+
+function isClearItemAfterChargeBoundary(line: string, firstMoneyRaw: string) {
+  const namePart = cleanItemName(line.slice(0, line.indexOf(firstMoneyRaw)));
+  if (!namePart || nonItemPattern.test(namePart)) return false;
+  if (!/^\d+\s*[xX]?\s+\S+/.test(line)) return false;
+  return /[a-z]/i.test(namePart) && namePart.replace(/[^a-z]/gi, "").length >= 3;
 }
 
 function isPlausibleItem(name: string, amount: number) {
@@ -233,13 +277,17 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
 
   const warnings: string[] = [];
   const items: ParsedReceiptItem[] = [];
-  let subtotal: number | undefined;
-  let taxAmount: number | undefined;
-  let serviceAmount: number | undefined;
-  let total: number | undefined;
+  const explicitCharges = getExplicitCharges(cleanedLines);
+  let subtotal = explicitCharges.subtotal;
+  let taxAmount = explicitCharges.taxAmount;
+  let serviceAmount = explicitCharges.serviceAmount;
+  let total = explicitCharges.total;
   let lastChargeable: ParsedReceiptItem | null = null;
   let pendingNameParts: string[] = [];
+  let chargeBoundaryReached = false;
+  let warnedAboutRejectedOverflow = false;
   const looseAmounts: number[] = [];
+  const strongestDetectedSubtotal = subtotal ?? total;
 
   for (const [lineIndex, line] of cleanedLines.entries()) {
     const text = line.text;
@@ -255,24 +303,34 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
     if (subtotalPattern.test(lower) && lastMoney) {
       subtotal = lastMoney;
       pendingNameParts = [];
+      chargeBoundaryReached = true;
       continue;
     }
 
     if (taxPattern.test(lower) && lastMoney) {
       taxAmount = lastMoney;
       pendingNameParts = [];
+      chargeBoundaryReached = true;
       continue;
     }
 
     if (servicePattern.test(lower) && lastMoney) {
       serviceAmount = lastMoney;
       pendingNameParts = [];
+      chargeBoundaryReached = true;
       continue;
     }
 
-    if (totalPattern.test(lower) && lastMoney) {
+    if (explicitTotalPattern.test(lower) && lastMoney) {
       total = lastMoney;
       pendingNameParts = [];
+      chargeBoundaryReached = true;
+      continue;
+    }
+
+    if (chargeBoundaryPattern.test(lower)) {
+      pendingNameParts = [];
+      chargeBoundaryReached = true;
       continue;
     }
 
@@ -313,6 +371,14 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
     const firstCandidate = candidates[0];
     if (!amount || !firstCandidate) continue;
 
+    if (
+      chargeBoundaryReached &&
+      !isClearItemAfterChargeBoundary(text, firstCandidate.raw)
+    ) {
+      pendingNameParts = [];
+      continue;
+    }
+
     const namePart = text.slice(0, text.indexOf(firstCandidate.raw));
     const cleanedInlineName = cleanItemName(namePart);
     const inlineName = /^\d+$/.test(cleanedInlineName) ? "" : cleanedInlineName;
@@ -331,6 +397,22 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
     }
 
     if (!isPlausibleItem(name, price)) {
+      continue;
+    }
+
+    const lineTotal = price * quantity;
+    const projectedSubtotal =
+      items.reduce((sum, item) => sum + item.price * item.quantity, 0) + lineTotal;
+    if (
+      strongestDetectedSubtotal &&
+      projectedSubtotal > Math.max(strongestDetectedSubtotal * 1.25, strongestDetectedSubtotal + 20_000)
+    ) {
+      if (!warnedAboutRejectedOverflow) {
+        warnings.push(
+          "Some OCR item rows were ignored because they exceed the detected receipt subtotal.",
+        );
+        warnedAboutRejectedOverflow = true;
+      }
       continue;
     }
 
@@ -354,7 +436,7 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
   const baseSubtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   if (!subtotal && baseSubtotal > 0) subtotal = baseSubtotal;
 
-  if (!total && subtotal) {
+  if (!explicitCharges.total && !total && subtotal) {
     for (let index = looseAmounts.length - 1; index >= 0; index -= 1) {
       if (looseAmounts[index] >= subtotal) {
         total = looseAmounts[index];
@@ -379,6 +461,13 @@ export function parseReceiptLines(lines: OcrLine[]): ParsedReceipt {
 
   if (items.length === 0) {
     warnings.push("No chargeable item rows were detected. Manual review is required.");
+  }
+
+  if (explicitCharges.subtotal && baseSubtotal > 0) {
+    const delta = Math.abs(baseSubtotal - explicitCharges.subtotal);
+    if (delta > Math.max(1000, explicitCharges.subtotal * 0.03)) {
+      warnings.push("OCR item subtotal conflicts with the detected receipt subtotal.");
+    }
   }
 
   if (total && subtotal && !charges.included) {
