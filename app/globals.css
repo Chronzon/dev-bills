@@ -348,7 +348,7 @@ button {
 
 .item-editor-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(108px, 0.42fr) 72px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(154px, 0.5fr) 72px minmax(118px, auto) 40px;
   gap: 10px;
   align-items: end;
   min-height: 74px;
@@ -374,7 +374,8 @@ button {
   text-transform: uppercase;
 }
 
-.item-editor-row input {
+.item-editor-row input,
+.bill-totals-editor input {
   min-width: 0;
   width: 100%;
   height: 40px;
@@ -386,6 +387,39 @@ button {
   padding: 0 11px;
   font-size: 14px;
   font-weight: 680;
+}
+
+.item-price-editor {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.price-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(247, 247, 242, 0.1);
+  border-radius: 14px;
+  background: rgba(247, 247, 242, 0.06);
+}
+
+.price-mode-tabs button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(247, 247, 242, 0.64);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.price-mode-tabs button.active {
+  background: rgba(247, 247, 242, 0.15);
+  color: var(--text);
 }
 
 .item-editor-total {
@@ -408,7 +442,15 @@ button {
   white-space: nowrap;
 }
 
-.item-editor-row button {
+.item-editor-total em {
+  color: var(--amber);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.item-editor-remove-button {
   width: 40px;
   height: 40px;
   border: 1px solid rgba(247, 247, 242, 0.12);
@@ -594,6 +636,42 @@ button {
   padding-bottom: 0;
 }
 
+.bill-totals-editor {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid rgba(244, 184, 74, 0.18);
+  border-radius: 20px;
+  background: rgba(244, 184, 74, 0.08);
+}
+
+.bill-totals-note {
+  grid-column: 1 / -1;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+  color: rgba(247, 247, 242, 0.68);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.bill-totals-note span {
+  color: rgba(247, 247, 242, 0.5);
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bill-totals-note b {
+  color: var(--text);
+}
+
 .item-editor-sheet-actions {
   padding-top: 2px;
 }
@@ -731,6 +809,7 @@ button {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
   cursor: grab;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
 }
@@ -761,6 +840,7 @@ button {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
   cursor: grab;
 }
 
@@ -1509,6 +1589,17 @@ button {
     overflow: visible;
   }
 
+  .bill-totals-editor {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 14px;
+  }
+
+  .bill-totals-note {
+    min-height: 30px;
+  }
+
   .item-editor-row {
     grid-template-columns: minmax(0, 1fr) minmax(76px, 0.6fr) 44px;
     row-gap: 12px;
@@ -1522,8 +1613,12 @@ button {
     grid-column: 1 / -1;
   }
 
+  .item-price-editor {
+    grid-column: 1 / -1;
+  }
+
   .item-editor-total {
-    grid-row: 3;
+    grid-row: 4;
     min-width: 0;
     display: grid;
     grid-template-columns: 1fr auto;
@@ -1537,9 +1632,9 @@ button {
     justify-content: flex-end;
   }
 
-  .item-editor-row button {
+  .item-editor-remove-button {
     grid-column: 3;
-    grid-row: 2;
+    grid-row: 3;
     align-self: end;
   }
 

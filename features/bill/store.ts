@@ -85,6 +85,52 @@ function normalizeUpdatedItems(items: BillItem[]) {
   });
 }
 
+function areBillItemsEqual(currentItems: BillItem[], nextItems: BillItem[]) {
+  if (currentItems.length !== nextItems.length) return false;
+
+  return currentItems.every((item, index) => {
+    const nextItem = nextItems[index];
+    return (
+      item.id === nextItem.id &&
+      item.name === nextItem.name &&
+      item.basePrice === nextItem.basePrice &&
+      item.quantity === nextItem.quantity
+    );
+  });
+}
+
+function normalizeManualCharges(charges: {
+  subtotal: number;
+  serviceAmount: number;
+  taxAmount: number;
+  total: number;
+}) {
+  const subtotal = Math.round(charges.subtotal);
+  const serviceAmount = Math.round(charges.serviceAmount);
+  const taxAmount = Math.round(charges.taxAmount);
+  const total = Math.round(charges.total);
+
+  if (subtotal <= 0) throw new Error("Subtotal must be greater than zero.");
+  if (total <= 0) throw new Error("Grand total must be greater than zero.");
+  if (serviceAmount < 0) throw new Error("Service cannot be negative.");
+  if (taxAmount < 0) throw new Error("Tax cannot be negative.");
+
+  return {
+    taxRate:
+      subtotal + serviceAmount > 0
+        ? Number((taxAmount / (subtotal + serviceAmount)).toFixed(4))
+        : 0,
+    serviceRate: Number((serviceAmount / subtotal).toFixed(4)),
+    included: false,
+    subtotal,
+    serviceAmount,
+    taxAmount,
+    total,
+    taxBase: "subtotal_plus_service" as const,
+    roundingDelta: total - subtotal - serviceAmount - taxAmount,
+  } satisfies Charges;
+}
+
 function normalizeCreateInput(input?: {
   currency?: Currency;
   people?: Person[];
@@ -206,6 +252,36 @@ function updateMemoryBillItems(id: string, items: BillItem[]) {
   const nextItems = normalizeUpdatedItems(items);
   bill.items = nextItems;
   bill.portions = nextItems.map(createFullPortion);
+  return cloneBill(bill);
+}
+
+function updateMemoryBillReview(
+  id: string,
+  items: BillItem[],
+  charges: Parameters<typeof normalizeManualCharges>[0],
+) {
+  const bill = bills.get(id);
+  if (!bill) return null;
+
+  const nextItems = normalizeUpdatedItems(items);
+  const nextCharges = normalizeManualCharges(charges);
+  const itemsChanged = !areBillItemsEqual(bill.items, nextItems);
+
+  bill.items = nextItems;
+  bill.charges = nextCharges;
+  bill.receiptMeta = {
+    ...bill.receiptMeta,
+    subtotal: nextCharges.subtotal,
+    taxAmount: nextCharges.taxAmount,
+    serviceAmount: nextCharges.serviceAmount,
+    total: nextCharges.total,
+    warnings: bill.receiptMeta?.warnings ?? [],
+  };
+
+  if (itemsChanged) {
+    bill.portions = nextItems.map(createFullPortion);
+  }
+
   return cloneBill(bill);
 }
 
@@ -507,6 +583,85 @@ export async function updateBillItems(id: string, items: BillItem[]) {
   const prisma = await db();
 
   await prisma.$transaction([
+    prisma.portion.deleteMany({ where: { billId: id } }),
+    prisma.billItem.deleteMany({ where: { billId: id } }),
+    ...nextItems.map((item, index) =>
+      prisma.billItem.create({
+        data: {
+          id: item.id,
+          billId: id,
+          name: item.name,
+          basePrice: item.basePrice,
+          quantity: item.quantity,
+          components: item.components,
+          confidence: item.confidence,
+          needsReview: item.needsReview,
+          rawLines: item.rawLines,
+          sortOrder: index,
+        },
+      }),
+    ),
+    ...nextPortions.map((portion, index) =>
+      prisma.portion.create({
+        data: {
+          id: portion.id,
+          billId: id,
+          itemId: portion.itemId,
+          label: portion.label,
+          baseAmount: portion.baseAmount,
+          assignedPersonId: null,
+          source: portion.source,
+          quantity: portion.quantity,
+          unitAmount: portion.unitAmount,
+          splitMode: normalizePortionSplitMode(portion.splitMode, portion.source),
+          sortOrder: index,
+        },
+      }),
+    ),
+  ]);
+
+  return findDbBill(id);
+}
+
+export async function updateBillReview(
+  id: string,
+  items: BillItem[],
+  charges: Parameters<typeof normalizeManualCharges>[0],
+) {
+  if (!hasDatabase) return updateMemoryBillReview(id, items, charges);
+
+  const bill = await findDbBill(id);
+  if (!bill) return null;
+
+  const nextItems = normalizeUpdatedItems(items);
+  const nextCharges = normalizeManualCharges(charges);
+  const itemsChanged = !areBillItemsEqual(bill.items, nextItems);
+  const prisma = await db();
+
+  const billUpdate = prisma.bill.update({
+    where: { id },
+    data: {
+      taxRate: nextCharges.taxRate,
+      serviceRate: nextCharges.serviceRate,
+      chargesIncluded: nextCharges.included,
+      subtotal: nextCharges.subtotal,
+      taxAmount: nextCharges.taxAmount,
+      serviceAmount: nextCharges.serviceAmount,
+      total: nextCharges.total,
+      taxBase: nextCharges.taxBase,
+      roundingDelta: nextCharges.roundingDelta,
+    },
+  });
+
+  if (!itemsChanged) {
+    await billUpdate;
+    return findDbBill(id);
+  }
+
+  const nextPortions = nextItems.map(createFullPortion);
+
+  await prisma.$transaction([
+    billUpdate,
     prisma.portion.deleteMany({ where: { billId: id } }),
     prisma.billItem.deleteMany({ where: { billId: id } }),
     ...nextItems.map((item, index) =>

@@ -24,8 +24,8 @@ import {
   getBackendBill,
   scanReceiptFiles,
   splitBackendItem,
-  updateBackendItems,
   updateBackendPeople,
+  updateBackendReview,
 } from "@/features/bill/api-client";
 import {
   assignPortion,
@@ -71,10 +71,19 @@ const personAccents = ["#F4B84A", "#62E6D8", "#DADAD5", "#9A7A39", "#C78BFF"];
 const activeBillStorageKey = "dev-bills:active-bill-id";
 
 type ApiStatus = "connecting" | "ready" | "saving" | "scanning" | "error";
+type DraftItemPriceMode = "unit" | "total";
 
 type DraftItem = Omit<BillItem, "basePrice" | "quantity"> & {
   basePrice: string;
   quantity: string;
+  priceMode: DraftItemPriceMode;
+};
+
+type DraftCharges = {
+  subtotal: string;
+  serviceAmount: string;
+  taxAmount: string;
+  total: string;
 };
 
 function toDraftItem(item: BillItem): DraftItem {
@@ -82,22 +91,127 @@ function toDraftItem(item: BillItem): DraftItem {
     ...item,
     basePrice: String(item.basePrice),
     quantity: String(item.quantity),
+    priceMode: "unit",
+  };
+}
+
+function toDraftCharges(bill: BillState): DraftCharges {
+  const chargeParts = getBillChargeParts(bill);
+
+  return {
+    subtotal: String(chargeParts.subtotal),
+    serviceAmount: String(chargeParts.serviceAmount),
+    taxAmount: String(chargeParts.taxAmount),
+    total: String(chargeParts.total),
+  };
+}
+
+function parseDraftCharges(charges: DraftCharges) {
+  const subtotal = Number.parseInt(charges.subtotal, 10);
+  const serviceAmount = Number.parseInt(charges.serviceAmount, 10);
+  const taxAmount = Number.parseInt(charges.taxAmount, 10);
+  const total = Number.parseInt(charges.total, 10);
+
+  if (
+    !Number.isFinite(subtotal) ||
+    !Number.isFinite(serviceAmount) ||
+    !Number.isFinite(taxAmount) ||
+    !Number.isFinite(total) ||
+    subtotal <= 0 ||
+    serviceAmount < 0 ||
+    taxAmount < 0 ||
+    total <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    subtotal: Math.round(subtotal),
+    serviceAmount: Math.round(serviceAmount),
+    taxAmount: Math.round(taxAmount),
+    total: Math.round(total),
+  };
+}
+
+function buildManualCharges(charges: NonNullable<ReturnType<typeof parseDraftCharges>>) {
+  return {
+    taxRate:
+      charges.subtotal + charges.serviceAmount > 0
+        ? Number((charges.taxAmount / (charges.subtotal + charges.serviceAmount)).toFixed(4))
+        : 0,
+    serviceRate: Number((charges.serviceAmount / charges.subtotal).toFixed(4)),
+    included: false,
+    subtotal: charges.subtotal,
+    serviceAmount: charges.serviceAmount,
+    taxAmount: charges.taxAmount,
+    total: charges.total,
+    taxBase: "subtotal_plus_service" as const,
+    roundingDelta:
+      charges.total - charges.subtotal - charges.serviceAmount - charges.taxAmount,
+  };
+}
+
+function areReviewItemsEqual(currentItems: BillItem[], nextItems: BillItem[]) {
+  if (currentItems.length !== nextItems.length) return false;
+
+  return currentItems.every((item, index) => {
+    const nextItem = nextItems[index];
+    return (
+      item.id === nextItem.id &&
+      item.name === nextItem.name &&
+      item.basePrice === nextItem.basePrice &&
+      item.quantity === nextItem.quantity
+    );
+  });
+}
+
+function getDraftItemPreview(item: DraftItem) {
+  const price = Number.parseInt(item.basePrice, 10);
+  const parsedQuantity = Number.parseInt(item.quantity, 10);
+  const quantity =
+    Number.isFinite(parsedQuantity) && parsedQuantity > 0
+      ? Math.round(parsedQuantity)
+      : 1;
+  const name = item.name.trim();
+  const lineTotal = Number.isFinite(price)
+    ? item.priceMode === "total"
+      ? Math.round(price)
+      : Math.round(price) * quantity
+    : 0;
+
+  if (!name || !Number.isFinite(price) || price <= 0) {
+    return { item: null, lineTotal, error: null };
+  }
+
+  if (item.priceMode === "total" && Math.round(price) % quantity !== 0) {
+    return {
+      item: null,
+      lineTotal,
+      error: "Line total must divide evenly by quantity.",
+    };
+  }
+
+  return {
+    item: {
+      id: item.id,
+      name,
+      components: item.components,
+      confidence: item.confidence,
+      needsReview: item.needsReview,
+      rawLines: item.rawLines,
+      basePrice:
+        item.priceMode === "total"
+          ? Math.round(price) / quantity
+          : Math.round(price),
+      quantity,
+    },
+    lineTotal,
+    error: null,
   };
 }
 
 function parseDraftItem(item: DraftItem): BillItem | null {
-  const basePrice = Number.parseInt(item.basePrice, 10);
-  const quantity = Number.parseInt(item.quantity, 10);
-  const name = item.name.trim();
-
-  if (!name || !Number.isFinite(basePrice) || basePrice <= 0) return null;
-
-  return {
-    ...item,
-    name,
-    basePrice: Math.round(basePrice),
-    quantity: Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity) : 1,
-  };
+  return getDraftItemPreview(item).item;
 }
 
 function buildBillCreateBody(bill: BillState, people: Person[]) {
@@ -381,27 +495,46 @@ export function DevBillsApp() {
     }
   };
 
-  const handleUpdateItems = async (items: BillItem[]) => {
+  const handleUpdateBill = async (
+    items: BillItem[],
+    charges: NonNullable<ReturnType<typeof parseDraftCharges>>,
+  ) => {
     if (!bill.id) return;
 
     const previousBill = bill;
+    const itemsChanged = !areReviewItemsEqual(bill.items, items);
+    const nextCharges = buildManualCharges(charges);
     setBill((current) => ({
       ...current,
       items,
-      portions: items.map(createFullPortion),
+      charges: nextCharges,
+      receiptMeta: {
+        ...current.receiptMeta,
+        subtotal: nextCharges.subtotal,
+        serviceAmount: nextCharges.serviceAmount,
+        taxAmount: nextCharges.taxAmount,
+        total: nextCharges.total,
+        warnings: current.receiptMeta?.warnings ?? [],
+      },
+      portions: itemsChanged ? items.map(createFullPortion) : current.portions,
     }));
     setApiStatus("saving");
-    setApiMessage("Saving items...");
+    setApiMessage("Saving bill...");
 
     try {
-      const { bill: updatedBill } = await updateBackendItems(bill.id, items);
+      const { bill: updatedBill } = await updateBackendReview(bill.id, {
+        items,
+        charges,
+      });
       setBill(updatedBill);
       setApiStatus("ready");
-      setApiMessage("Items saved. Assignments were reset.");
+      setApiMessage(
+        itemsChanged ? "Bill saved. Assignments were reset." : "Bill totals saved.",
+      );
     } catch (error) {
       setBill(previousBill);
       setApiStatus("error");
-      setApiMessage(error instanceof Error ? error.message : "Could not update items.");
+      setApiMessage(error instanceof Error ? error.message : "Could not update bill.");
     }
   };
 
@@ -441,7 +574,7 @@ export function DevBillsApp() {
               isScanning={apiStatus === "scanning"}
               isSaving={apiStatus === "saving"}
               onReceiptFiles={handleReceiptFiles}
-              onUpdateItems={handleUpdateItems}
+              onUpdateBill={handleUpdateBill}
               onBack={() => setStep("home")}
               onNext={() => setStep("people")}
             />
@@ -619,7 +752,7 @@ function ReviewScreen({
   isScanning,
   isSaving,
   onReceiptFiles,
-  onUpdateItems,
+  onUpdateBill,
   onBack,
   onNext,
 }: {
@@ -628,7 +761,10 @@ function ReviewScreen({
   isScanning: boolean;
   isSaving: boolean;
   onReceiptFiles: (files: File[]) => void;
-  onUpdateItems: (items: BillItem[]) => void;
+  onUpdateBill: (
+    items: BillItem[],
+    charges: NonNullable<ReturnType<typeof parseDraftCharges>>,
+  ) => void;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -636,6 +772,9 @@ function ReviewScreen({
   const [isItemEditorOpen, setIsItemEditorOpen] = useState(false);
   const [draftItems, setDraftItems] = useState<DraftItem[]>(
     bill.items.map(toDraftItem),
+  );
+  const [draftCharges, setDraftCharges] = useState<DraftCharges>(() =>
+    toDraftCharges(bill),
   );
   const chargeParts = useMemo(() => getBillChargeParts(bill), [bill]);
   const itemSubtotal = bill.items.reduce(
@@ -650,7 +789,7 @@ function ReviewScreen({
 
   const updateDraftItem = (
     itemId: string,
-    patch: Partial<Pick<DraftItem, "name" | "basePrice" | "quantity">>,
+    patch: Partial<Pick<DraftItem, "name" | "basePrice" | "quantity" | "priceMode">>,
   ) => {
     setDraftItems((items) =>
       items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
@@ -669,6 +808,7 @@ function ReviewScreen({
         name: "",
         basePrice: "1000",
         quantity: "1",
+        priceMode: "unit",
       },
     ]);
   };
@@ -677,18 +817,24 @@ function ReviewScreen({
     setDraftItems((items) => items.filter((entry) => entry.id !== itemId));
   };
 
-  const saveDraftItems = () => {
+  const updateDraftCharge = (key: keyof DraftCharges, value: string) => {
+    setDraftCharges((charges) => ({ ...charges, [key]: value }));
+  };
+
+  const saveDraftBill = () => {
     const items = draftItems
       .map(parseDraftItem)
       .filter((item): item is BillItem => item !== null);
+    const charges = parseDraftCharges(draftCharges);
 
-    if (items.length === 0) return;
-    onUpdateItems(items);
+    if (items.length === 0 || !charges) return;
+    onUpdateBill(items, charges);
     setIsItemEditorOpen(false);
   };
 
   const openItemEditor = () => {
     setDraftItems(bill.items.map(toDraftItem));
+    setDraftCharges(toDraftCharges(bill));
     setIsItemEditorOpen(true);
   };
 
@@ -788,7 +934,7 @@ function ReviewScreen({
             onClick={openItemEditor}
             disabled={isSaving}
           >
-            Edit items
+            Edit bill
           </button>
         </div>
         <button
@@ -804,11 +950,13 @@ function ReviewScreen({
         {isItemEditorOpen && (
           <ItemEditorSheet
             draftItems={draftItems}
+            draftCharges={draftCharges}
             isSaving={isSaving}
             onUpdateItem={updateDraftItem}
+            onUpdateCharge={updateDraftCharge}
             onAddItem={addDraftItem}
             onRemoveItem={removeDraftItem}
-            onSave={saveDraftItems}
+            onSave={saveDraftBill}
             onClose={() => setIsItemEditorOpen(false)}
           />
         )}
@@ -819,19 +967,23 @@ function ReviewScreen({
 
 function ItemEditorSheet({
   draftItems,
+  draftCharges,
   isSaving,
   onUpdateItem,
+  onUpdateCharge,
   onAddItem,
   onRemoveItem,
   onSave,
   onClose,
 }: {
   draftItems: DraftItem[];
+  draftCharges: DraftCharges;
   isSaving: boolean;
   onUpdateItem: (
     itemId: string,
-    patch: Partial<Pick<DraftItem, "name" | "basePrice" | "quantity">>,
+    patch: Partial<Pick<DraftItem, "name" | "basePrice" | "quantity" | "priceMode">>,
   ) => void;
+  onUpdateCharge: (key: keyof DraftCharges, value: string) => void;
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
   onSave: () => void;
@@ -840,11 +992,24 @@ function ItemEditorSheet({
   const validDraftItems = draftItems
     .map(parseDraftItem)
     .filter((item): item is BillItem => item !== null);
-  const draftSubtotal = validDraftItems.reduce(
-    (total, item) => total + item.basePrice * item.quantity,
+  const draftItemPreviews = draftItems.map(getDraftItemPreview);
+  const draftSubtotal = draftItemPreviews.reduce(
+    (total, preview) => total + preview.lineTotal,
     0,
   );
-  const canSave = validDraftItems.length > 0 && !isSaving;
+  const validDraftCharges = parseDraftCharges(draftCharges);
+  const manualRoundingDelta = validDraftCharges
+    ? validDraftCharges.total -
+      validDraftCharges.subtotal -
+      validDraftCharges.serviceAmount -
+      validDraftCharges.taxAmount
+    : 0;
+  const hasDraftItemError = draftItemPreviews.some((preview) => preview.error);
+  const canSave =
+    validDraftItems.length > 0 &&
+    Boolean(validDraftCharges) &&
+    !hasDraftItemError &&
+    !isSaving;
 
   return (
     <motion.div
@@ -866,20 +1031,76 @@ function ItemEditorSheet({
       >
         <div className="item-editor-sheet-head">
           <div>
-            <span className="label amber">EDIT ITEMS</span>
-            <h2 id="item-editor-title">Review food and products</h2>
+            <span className="label amber">EDIT BILL</span>
+            <h2 id="item-editor-title">Review totals and items</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close item editor">
+          <button type="button" onClick={onClose} aria-label="Close bill editor">
             ×
           </button>
         </div>
         <div className="item-editor-sheet-meta">
-          <span>{draftItems.length} items</span>
+          <span>Item rows subtotal</span>
           <b>{formatRupiah(draftSubtotal)}</b>
         </div>
         <div className="item-editor-scroll">
+          <div className="bill-totals-editor" aria-label="Bill totals">
+            <label className="item-editor-field">
+              <span>Subtotal</span>
+              <input
+                value={draftCharges.subtotal}
+                type="number"
+                min={1}
+                step={1000}
+                aria-label="Bill subtotal"
+                onChange={(event) =>
+                  onUpdateCharge("subtotal", event.currentTarget.value)
+                }
+              />
+            </label>
+            <label className="item-editor-field">
+              <span>Service</span>
+              <input
+                value={draftCharges.serviceAmount}
+                type="number"
+                min={0}
+                step={1000}
+                aria-label="Bill service"
+                onChange={(event) =>
+                  onUpdateCharge("serviceAmount", event.currentTarget.value)
+                }
+              />
+            </label>
+            <label className="item-editor-field">
+              <span>Tax</span>
+              <input
+                value={draftCharges.taxAmount}
+                type="number"
+                min={0}
+                step={1000}
+                aria-label="Bill tax"
+                onChange={(event) =>
+                  onUpdateCharge("taxAmount", event.currentTarget.value)
+                }
+              />
+            </label>
+            <label className="item-editor-field">
+              <span>Grand total</span>
+              <input
+                value={draftCharges.total}
+                type="number"
+                min={1}
+                step={1000}
+                aria-label="Bill grand total"
+                onChange={(event) => onUpdateCharge("total", event.currentTarget.value)}
+              />
+            </label>
+            <div className="bill-totals-note">
+              <span>Rounding</span>
+              <b>{formatRupiah(manualRoundingDelta)}</b>
+            </div>
+          </div>
           <div className="item-editor-list">
-            {draftItems.map((item) => (
+            {draftItems.map((item, index) => (
               <div className="item-editor-row" key={item.id}>
                 <label className="item-editor-field item-editor-name">
                   <span>Name</span>
@@ -892,21 +1113,42 @@ function ItemEditorSheet({
                     }
                   />
                 </label>
-                <label className="item-editor-field">
-                  <span>Unit price</span>
-                  <input
-                    value={item.basePrice}
-                    type="number"
-                    min={1000}
-                    step={500}
-                    aria-label="Item price"
-                    onChange={(event) =>
-                      onUpdateItem(item.id, {
-                        basePrice: event.currentTarget.value,
-                      })
-                    }
-                  />
-                </label>
+                <div className="item-price-editor">
+                  <div className="price-mode-tabs" role="tablist" aria-label="Price mode">
+                    <button
+                      type="button"
+                      className={item.priceMode === "unit" ? "active" : ""}
+                      onClick={() => onUpdateItem(item.id, { priceMode: "unit" })}
+                    >
+                      Unit
+                    </button>
+                    <button
+                      type="button"
+                      className={item.priceMode === "total" ? "active" : ""}
+                      onClick={() => onUpdateItem(item.id, { priceMode: "total" })}
+                    >
+                      Total
+                    </button>
+                  </div>
+                  <label className="item-editor-field">
+                    <span>{item.priceMode === "total" ? "Line price" : "Unit price"}</span>
+                    <input
+                      value={item.basePrice}
+                      type="number"
+                      min={1000}
+                      step={500}
+                      aria-label={
+                        item.priceMode === "total" ? "Item line price" : "Item unit price"
+                      }
+                      aria-invalid={Boolean(draftItemPreviews[index].error)}
+                      onChange={(event) =>
+                        onUpdateItem(item.id, {
+                          basePrice: event.currentTarget.value,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
                 <label className="item-editor-field">
                   <span>Qty</span>
                   <input
@@ -923,14 +1165,13 @@ function ItemEditorSheet({
                 </label>
                 <div className="item-editor-total">
                   <span>Line total</span>
-                  <b>
-                    {formatRupiah(
-                      (Number.parseInt(item.basePrice, 10) || 0) *
-                        (Number.parseInt(item.quantity, 10) || 0),
-                    )}
-                  </b>
+                  <b>{formatRupiah(draftItemPreviews[index].lineTotal)}</b>
+                  {draftItemPreviews[index].error && (
+                    <em>{draftItemPreviews[index].error}</em>
+                  )}
                 </div>
                 <button
+                  className="item-editor-remove-button"
                   type="button"
                   aria-label={`Remove ${item.name || "item"}`}
                   onClick={() => onRemoveItem(item.id)}
@@ -951,7 +1192,7 @@ function ItemEditorSheet({
             onClick={onSave}
             disabled={!canSave}
           >
-            Save items
+            Save bill
           </button>
         </div>
       </motion.div>
@@ -1164,14 +1405,17 @@ function DraggableBubble({
 
   const onPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     listeners?.onPointerDown?.(event);
+    if (event.pointerType !== "mouse") event.preventDefault();
     startPoint.current = { x: event.clientX, y: event.clientY };
     longPressTriggered.current = false;
     cancelHold();
-    holdTimer.current = window.setTimeout(() => {
-      longPressTriggered.current = true;
-      onOpenSplit();
-      holdTimer.current = null;
-    }, 520);
+    if (event.pointerType !== "mouse") {
+      holdTimer.current = window.setTimeout(() => {
+        longPressTriggered.current = true;
+        onOpenSplit();
+        holdTimer.current = null;
+      }, 520);
+    }
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -1184,6 +1428,7 @@ function DraggableBubble({
 
   const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
     listeners?.onPointerUp?.(event);
+    if (event.pointerType !== "mouse") event.preventDefault();
     const moveDistance = getMoveDistance(event);
     cancelHold();
     startPoint.current = null;
@@ -1193,6 +1438,8 @@ function DraggableBubble({
       return;
     }
 
+    if (event.pointerType === "mouse") return;
+
     const now = window.performance.now();
     const previousTap = lastTap.current;
     if (
@@ -1201,6 +1448,7 @@ function DraggableBubble({
       Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y) <= 18
     ) {
       lastTap.current = null;
+      event.stopPropagation();
       onOpenSplit();
       return;
     }
@@ -1214,9 +1462,18 @@ function DraggableBubble({
       className={`drag-bubble ${accent} ${isDragging ? "dragging" : ""}`}
       style={style}
       type="button"
+      draggable={false}
       aria-label={`${portion.label}, ${formatRupiah(portion.baseAmount)}. Double tap to split.`}
       title="Double tap to split"
       {...attributes}
+      onContextMenu={(event) => event.preventDefault()}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelHold();
+        lastTap.current = null;
+        onOpenSplit();
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -1417,13 +1674,16 @@ function SplitModal({
       <button className="modal-scrim" type="button" onClick={onClose} />
       <motion.div
         className="split-modal glass-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="split-modal-title"
         initial={{ opacity: 0, y: 30, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 20, scale: 0.98 }}
         transition={{ duration: 0.25 }}
       >
         <span className="label amber">SPLIT ITEM?</span>
-        <h2>Divide {getQuantityLabel(item.name, item.quantity)}</h2>
+        <h2 id="split-modal-title">Divide {getQuantityLabel(item.name, item.quantity)}</h2>
         <p>
           {formatRupiah(item.basePrice)} per item · {formatRupiah(amount)} total
         </p>

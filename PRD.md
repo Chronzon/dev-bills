@@ -82,12 +82,17 @@ The review screen lets users inspect and correct detected bill data.
 Current behavior:
 
 - Review shows compact item chips by default.
-- The `Edit items` action opens a full-screen item editor sheet for all viewports.
-- Editor rows show name, unit price, quantity, line total, and remove action in a scrollable dedicated surface.
-- Users can edit item names, unit prices, and quantities.
+- The `Edit bill` action opens a full-screen bill editor sheet for all viewports.
+- The editor sheet lets users correct subtotal, service, tax, and grand total as nominal IDR amounts.
+- Manually corrected totals are treated as charge overrides and do not redistribute or mutate item unit prices.
+- The editor shows the read-only item rows subtotal next to the manual bill totals for comparison.
+- Editor rows show name, per-row price mode, price, quantity, line total, and remove action in a scrollable dedicated surface.
+- Users can edit item names, quantities, and choose whether the price input means unit price or line total for each row.
+- Line-total mode normalizes back to `BillItem.basePrice` on save; non-divisible line totals are blocked rather than rounded.
 - Draft input values are held as strings while typing so values like `1` can be deleted and replaced with `7`.
 - Entering edit mode refreshes draft item values from the current saved bill.
 - Users can add missing items or remove wrong items inside the editor sheet.
+- Saving totals-only changes preserves existing portions and assignments; saving item row changes resets portions for reassignment.
 - Review shows the backend calculation context: item subtotal, detected subtotal, service, tax, grand total, effective multiplier, and reconciliation warning.
 
 ### 4. People Setup
@@ -126,6 +131,7 @@ Current behavior:
 
 - Double-tapping or double-clicking an unassigned item bubble opens a focused split modal.
 - Long-pressing an item remains available as a touch fallback.
+- Mobile split gestures suppress text selection and native touch callouts while preserving drag assignment.
 - Drag movement cancels split gestures so normal assignment drag stays distinct from opening the modal.
 - Equal split mode creates labeled portions such as `Pizza 1/3`, `Pizza 2/3`, and `Pizza 3/3`.
 - Quantity split mode is the default for items with quantity greater than 1.
@@ -158,6 +164,9 @@ Current calculation rules:
 - Service share, tax share, and rounding share are allocated proportionally by each person's assigned base subtotal.
 - Rounding leftover is assigned deterministically by largest fractional remainder.
 - If receipt subtotal, service, tax, and grand total are detected, raw receipt amounts win over inferred rates.
+- If users manually correct subtotal, service, tax, or grand total in the bill editor, those explicit amounts win over inferred rates.
+- Manual service rate is derived as `service / subtotal`; manual tax rate is derived as `tax / (subtotal + service)` with tax base `subtotal_plus_service`.
+- Manual subtotal and grand total must be positive; manual service and tax may be zero.
 - Indonesian restaurant receipts default to tax on `subtotal + service` when that reconciles best; fallback is tax on subtotal.
 - Contradictory OCR totals should surface a review warning and remain editable.
 

@@ -57,6 +57,25 @@ export function updateBackendItems(billId: string, items: BillItem[]) {
   });
 }
 
+export function updateBackendReview(
+  billId: string,
+  input: {
+    items: BillItem[];
+    charges: {
+      subtotal: number;
+      serviceAmount: number;
+      taxAmount: number;
+      total: number;
+    };
+  },
+) {
+  return requestApi<BillMutationResult>(`/api/bills/${billId}/review`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
 export function splitBackendItem(
   billId: string,
   itemId: string,
